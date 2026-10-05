@@ -83,10 +83,12 @@ class AIOS:
             return db.execute(query, params).fetchall()
 
     def _event(self, db: sqlite3.Connection, entity_type: str, entity_id: str,
-               event_type: str, payload: dict[str, Any] | None = None) -> None:
+               event_type: str, payload: dict[str, Any] | None = None) -> str:
+        event_id = new_id("evt")
         db.execute("INSERT INTO events VALUES(?,?,?,?,?,?)",
-                   (new_id("evt"), entity_type, entity_id, event_type,
+                   (event_id, entity_type, entity_id, event_type,
                     json.dumps(payload or {}, sort_keys=True), now()))
+        return event_id
 
     def add_project(self, name: str, goal: str = "", priority: int = 3) -> dict[str, Any]:
         if not name.strip():
@@ -200,6 +202,13 @@ class AIOS:
         pending = [dict(r) for r in self._read(
             "SELECT * FROM approvals WHERE status='pending' ORDER BY created_at")]
         return {"projects": projects, "next_actions": tasks, "pending_approvals": pending}
+
+    def record_event(self, entity_type: str, entity_id: str, event_type: str,
+                     payload: dict[str, Any] | None = None) -> str:
+        if not entity_type.strip() or not entity_id.strip() or not event_type.strip():
+            raise ValueError("Event entity and type cannot be empty")
+        with self._connection() as db:
+            return self._event(db, entity_type, entity_id, event_type, payload)
 
     def recent_events(self, limit: int = 25) -> list[dict[str, Any]]:
         rows = self._read("SELECT * FROM events ORDER BY created_at DESC LIMIT ?", (limit,))
