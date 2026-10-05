@@ -27,7 +27,7 @@ python3 -m ai_os run --accept-task <recommended-task-id>
 python3 -m unittest discover -s tests -v
 ```
 
-Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Install with `python3 -m pip install -e .` to expose the `ai-os` command.
+Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Install with `python3 -m pip install -e .`; `python3 -m ai_os` works even when your Python scripts directory is not on PATH.
 
 ## Safety model
 
