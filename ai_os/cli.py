@@ -5,6 +5,9 @@ import argparse
 import json
 import sys
 from typing import Any
+from ai_os.bootstrap import bootstrap
+from ai_os.loop import ExecutionLoop
+from ai_os.planner import Planner
 from ai_os.store import AIOS
 
 
@@ -16,6 +19,7 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="ai-os", description="AI-OS local execution control plane")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Initialize the local database")
+    commands.add_parser("bootstrap", help="Add known projects without overwriting existing data")
     commands.add_parser("brief", help="Show today's focus and pending decisions")
     commands.add_parser("projects", help="List projects")
     commands.add_parser("tasks", help="List tasks")
@@ -36,6 +40,9 @@ def parser() -> argparse.ArgumentParser:
     c = approval.add_parser("check")
     c.add_argument("action_type"); c.add_argument("scope"); c.add_argument("--approval-id")
     commands.add_parser("events")
+    commands.add_parser("plan", help="Rank next actions without changing state")
+    run = commands.add_parser("run", help="Run one dry planner cycle")
+    run.add_argument("--accept-task", help="Accept the currently recommended task")
     return root
 
 
@@ -45,8 +52,14 @@ def main(argv: list[str] | None = None) -> int:
         store = AIOS()
         if args.command == "init":
             _print({"database": str(store.db_path), "initialized": True})
+        elif args.command == "bootstrap":
+            _print(bootstrap(store))
         elif args.command == "brief":
             _print(store.daily_brief())
+        elif args.command == "plan":
+            _print(Planner(store).plan())
+        elif args.command == "run":
+            _print(ExecutionLoop(store).run_once(args.accept_task))
         elif args.command == "projects":
             _print(store.list_projects())
         elif args.command == "tasks":
