@@ -69,6 +69,7 @@ class ProposalTests(unittest.TestCase):
     @patch("ai_os.providers.openai_compatible.build_opener")
     def test_provider_returns_structured_recommendation(self, urlopen):
         provider, task_id, reason = self.provider()
+        self.store.add_task(self.project["id"], "Second task", detail="private-notes-sentinel")
         urlopen.return_value.open.return_value = FakeResponse({
             "choices": [{"message": {"content": json.dumps({"task_id": task_id, "reason": reason})}}]
         })
@@ -79,6 +80,7 @@ class ProposalTests(unittest.TestCase):
         request_body = json.loads(request.data)
         self.assertEqual(request_body["temperature"], 0)
         self.assertEqual(request_body["response_format"], {"type": "json_object"})
+        self.assertNotIn("private-notes-sentinel", json.dumps(request_body))
 
     @patch("ai_os.providers.openai_compatible.build_opener")
     def test_external_task_id_is_rejected_and_never_mutates(self, urlopen):

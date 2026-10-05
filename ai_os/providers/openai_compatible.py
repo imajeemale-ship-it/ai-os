@@ -54,7 +54,6 @@ class OpenAICompatibleProvider:
             "project": t["project_name"],
             "project_goal": t["project_goal"],
             "title": t["title"],
-            "detail": t["detail"],
             "status": t["status"],
             "priority": t["priority"],
             "due_at": t["due_at"],
