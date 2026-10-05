@@ -20,6 +20,11 @@ class ProviderError(RuntimeError):
     pass
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class OpenAICompatibleProvider:
     """Uses OpenAI-compatible APIs; local settings may come from ~/.ai-os/model.json."""
 
@@ -55,6 +60,37 @@ class OpenAICompatibleProvider:
         host = urlparse(self.base_url).hostname
         local = host in {"localhost", "127.0.0.1", "::1"}
         return bool(self.api_key) or local
+
+    def status(self) -> dict[str, Any]:
+        parsed = urlparse(self.base_url)
+        local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        result: dict[str, Any] = {
+            "configured": self.configured(),
+            "model": self.model or None,
+            "local_only": local,
+            "credential_present": bool(self.api_key),
+            "availability": "not_checked",
+        }
+        if not self.configured():
+            result["availability"] = "not_configured"
+            return result
+        if not local:
+            return result
+        try:
+            if parsed.scheme != "http" or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                result["availability"] = "invalid_local_url"
+                return result
+            request = Request(f"{self.base_url.rstrip('/')}/models", headers={"Accept": "application/json"})
+            with build_opener(NoRedirect(), HTTPHandler()).open(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            models = payload.get("data", [])
+            names = [item.get("id") for item in models if isinstance(item, dict)]
+            result["availability"] = "available"
+            result["model_available"] = self.model in names
+        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+            result["availability"] = "unavailable"
+            result["model_available"] = False
+        return result
 
     def propose(self, tasks: list[dict[str, Any]]) -> dict[str, str]:
         if not self.configured():
@@ -101,10 +137,6 @@ class OpenAICompatibleProvider:
             headers=headers,
             method="POST",
         )
-        class NoRedirect(HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
-
         try:
             opener = build_opener(NoRedirect(), HTTPHandler(), HTTPSHandler())
             with opener.open(request, timeout=self.timeout) as response:

@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from ai_os.proposal import decide_model_proposal, eligible_tasks, model_proposal
+from ai_os.proposal import (
+    decide_model_proposal, eligible_tasks, model_proposal, pending_model_proposals,
+)
 from ai_os.providers.openai_compatible import (
     OpenAICompatibleProvider, ProviderError, ProviderNotConfigured,
 )
@@ -73,6 +75,31 @@ class ProposalTests(unittest.TestCase):
                 OpenAICompatibleProvider()
 
     @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_local_provider_status_checks_model_catalog_without_generation(self, opener_factory):
+        provider = OpenAICompatibleProvider(
+            base_url="http://127.0.0.1:11434/v1", model="qwen-local", api_key=""
+        )
+        opener_factory.return_value.open.return_value = FakeResponse({
+            "data": [{"id": "qwen-local"}]
+        })
+        result = provider.status()
+        self.assertEqual(result["availability"], "available")
+        self.assertTrue(result["model_available"])
+        self.assertFalse(result["credential_present"])
+        request = opener_factory.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:11434/v1/models")
+        self.assertNotIn("Authorization", request.headers)
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_remote_provider_status_does_not_make_network_call_or_expose_key(self, opener_factory):
+        provider, _, _ = self.provider()
+        result = provider.status()
+        self.assertEqual(result["availability"], "not_checked")
+        self.assertTrue(result["credential_present"])
+        self.assertNotIn("secret", json.dumps(result))
+        opener_factory.assert_not_called()
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
     def test_local_provider_needs_no_api_key(self, opener_factory):
         provider = OpenAICompatibleProvider(
             base_url="http://127.0.0.1:11434/v1", model="local-model", api_key=""
@@ -136,10 +163,27 @@ class ProposalTests(unittest.TestCase):
         self.assertEqual(result["status"], "proposed")
         self.assertEqual(result["proposal"]["task_id"], task_id)
         self.assertEqual(self.store.list_tasks()[0]["status"], "ready")
+        pending = pending_model_proposals(self.store)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["id"], result["id"])
+        self.assertEqual(pending[0]["status"], "pending")
         events = self.store.recent_events()
         logged = next(e for e in events if e["id"] == result["event_id"])
         self.assertEqual(logged["event_type"], "model_proposal.proposed")
         self.assertEqual(logged["payload"]["task_id"], task_id)
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_existing_pending_proposal_prevents_duplicate_model_request(self, opener_factory):
+        provider, task_id, reason = self.provider()
+        opener_factory.return_value.open.return_value = FakeResponse({
+            "choices": [{"message": {"content": json.dumps({"task_id": task_id, "reason": reason})}}]
+        })
+        first = model_proposal(self.store, provider)
+        second = model_proposal(self.store, provider)
+        self.assertEqual(first["status"], "proposed")
+        self.assertEqual(second["status"], "no_tasks")
+        opener_factory.return_value.open.assert_called_once()
+        self.assertEqual(len(pending_model_proposals(self.store)), 1)
 
     @patch("ai_os.providers.openai_compatible.build_opener")
     def test_explicit_accept_starts_the_proposed_task_and_logs_decision(self, opener_factory):
@@ -151,6 +195,7 @@ class ProposalTests(unittest.TestCase):
         result = decide_model_proposal(self.store, proposal["id"], "accepted")
         self.assertEqual(result["task"]["status"], "in_progress")
         self.assertEqual(self.store.list_tasks()[0]["status"], "in_progress")
+        self.assertEqual(pending_model_proposals(self.store), [])
         event = next(e for e in self.store.recent_events() if e["id"] == result["event_id"])
         self.assertEqual(event["event_type"], "model_proposal.accepted")
         with self.assertRaises(ValueError):

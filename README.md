@@ -25,6 +25,10 @@ python3 -m ai_os plan
 python3 -m ai_os run
 python3 -m ai_os run --accept-task <recommended-task-id>
 python3 -m ai_os model-plan  # optional; uses ~/.ai-os/model.json or provider environment variables
+python3 -m ai_os daily-cycle --save  # local brief + Ollama suggestion for review
+python3 -m ai_os proposals          # list pending proposals
+python3 -m ai_os provider-status    # check Ollama without generating text
+python3 -m ai_os schedule cycle-install  # separate 3:05 PM local model cycle
 python3 -m ai_os proposal accept <proposal-id>
 python3 -m ai_os proposal reject <proposal-id>
 python3 -m unittest discover -s tests -v

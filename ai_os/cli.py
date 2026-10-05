@@ -6,12 +6,16 @@ import json
 import sys
 from typing import Any
 from ai_os.bootstrap import bootstrap
+from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
 from ai_os.planner import Planner
-from ai_os.proposal import decide_model_proposal, model_proposal
+from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_proposals
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
-from ai_os.scheduler import daily_brief_status, install_daily_brief, uninstall_daily_brief
+from ai_os.scheduler import (
+    daily_brief_status, daily_cycle_status, install_daily_brief,
+    install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
+)
 from ai_os.store import AIOS
 
 
@@ -27,12 +31,21 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("brief", help="Show today's focus and pending decisions")
     daily = commands.add_parser("daily-brief", help="Generate a local Markdown daily brief")
     daily.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
+    cycle = commands.add_parser("daily-cycle", help="Generate a daily brief and optional local model proposal")
+    cycle.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
+    commands.add_parser("proposals", help="List pending model proposals for review")
+    commands.add_parser("provider-status", help="Check local model configuration and Ollama availability")
     schedule = commands.add_parser("schedule").add_subparsers(dest="action", required=True)
     schedule.add_parser("status", help="Show local daily-brief schedule status")
     schedule.add_parser("uninstall", help="Remove the local daily-brief schedule")
     install = schedule.add_parser("install", help="Install a local daily-brief LaunchAgent")
     install.add_argument("--hour", type=int, default=15)
     install.add_argument("--minute", type=int, default=0)
+    schedule.add_parser("cycle-status", help="Show local model-cycle schedule status")
+    schedule.add_parser("cycle-uninstall", help="Remove local model-cycle schedule")
+    cycle_install = schedule.add_parser("cycle-install", help="Install a local model-cycle LaunchAgent")
+    cycle_install.add_argument("--hour", type=int, default=15)
+    cycle_install.add_argument("--minute", type=int, default=5)
     commands.add_parser("projects", help="List projects")
     commands.add_parser("tasks", help="List tasks")
     project = commands.add_parser("project").add_subparsers(dest="action", required=True)
@@ -79,12 +92,30 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_daily_brief(store))})
             else:
                 print(render_daily_brief(store))
+        elif args.command == "daily-cycle":
+            provider = OpenAICompatibleProvider()
+            if args.save:
+                path, proposal = save_daily_cycle(store, provider)
+                _print({"saved_to": str(path), "proposal": proposal})
+            else:
+                rendered, _ = render_cycle(store, provider)
+                print(rendered)
+        elif args.command == "proposals":
+            _print(pending_model_proposals(store))
+        elif args.command == "provider-status":
+            _print(OpenAICompatibleProvider().status())
         elif args.command == "schedule" and args.action == "status":
             _print(daily_brief_status())
         elif args.command == "schedule" and args.action == "install":
             _print(install_daily_brief(args.hour, args.minute))
         elif args.command == "schedule" and args.action == "uninstall":
             _print(uninstall_daily_brief())
+        elif args.command == "schedule" and args.action == "cycle-install":
+            _print(install_daily_cycle(args.hour, args.minute))
+        elif args.command == "schedule" and args.action == "cycle-status":
+            _print(daily_cycle_status())
+        elif args.command == "schedule" and args.action == "cycle-uninstall":
+            _print(uninstall_daily_cycle())
         elif args.command == "plan":
             _print(Planner(store).plan())
         elif args.command == "model-plan":
