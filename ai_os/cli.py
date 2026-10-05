@@ -10,6 +10,8 @@ from ai_os.loop import ExecutionLoop
 from ai_os.planner import Planner
 from ai_os.proposal import decide_model_proposal, model_proposal
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
+from ai_os.report import render_daily_brief, save_daily_brief
+from ai_os.scheduler import daily_brief_status, install_daily_brief, uninstall_daily_brief
 from ai_os.store import AIOS
 
 
@@ -23,6 +25,14 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("init", help="Initialize the local database")
     commands.add_parser("bootstrap", help="Add known projects without overwriting existing data")
     commands.add_parser("brief", help="Show today's focus and pending decisions")
+    daily = commands.add_parser("daily-brief", help="Generate a local Markdown daily brief")
+    daily.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
+    schedule = commands.add_parser("schedule").add_subparsers(dest="action", required=True)
+    schedule.add_parser("status", help="Show local daily-brief schedule status")
+    schedule.add_parser("uninstall", help="Remove the local daily-brief schedule")
+    install = schedule.add_parser("install", help="Install a local daily-brief LaunchAgent")
+    install.add_argument("--hour", type=int, default=15)
+    install.add_argument("--minute", type=int, default=0)
     commands.add_parser("projects", help="List projects")
     commands.add_parser("tasks", help="List tasks")
     project = commands.add_parser("project").add_subparsers(dest="action", required=True)
@@ -64,6 +74,17 @@ def main(argv: list[str] | None = None) -> int:
             _print(bootstrap(store))
         elif args.command == "brief":
             _print(store.daily_brief())
+        elif args.command == "daily-brief":
+            if args.save:
+                _print({"saved_to": str(save_daily_brief(store))})
+            else:
+                print(render_daily_brief(store))
+        elif args.command == "schedule" and args.action == "status":
+            _print(daily_brief_status())
+        elif args.command == "schedule" and args.action == "install":
+            _print(install_daily_brief(args.hour, args.minute))
+        elif args.command == "schedule" and args.action == "uninstall":
+            _print(uninstall_daily_brief())
         elif args.command == "plan":
             _print(Planner(store).plan())
         elif args.command == "model-plan":

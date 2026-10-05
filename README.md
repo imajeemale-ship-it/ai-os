@@ -36,4 +36,4 @@ Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. In
 
 Actions default to preparation. `send_message`, `spend_money`, `trade`, `publish`, `delete_data`, and `deploy` require an approved, exact-scope record. The current loop does not connect to any external execution system.
 
-See [the execution loop design](docs/EXECUTION_LOOP.md).
+Install the default 3:00 PM local report with `python3 -m ai_os schedule install`; check it with `python3 -m ai_os schedule status`. See [the execution loop design](docs/EXECUTION_LOOP.md) and [the local daily brief](docs/DAILY_BRIEF.md).

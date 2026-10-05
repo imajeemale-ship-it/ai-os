@@ -193,7 +193,10 @@ class AIOS:
 
     def daily_brief(self) -> dict[str, Any]:
         projects = [dict(r) for r in self._read(
-            "SELECT * FROM projects WHERE status='active' ORDER BY priority, name")]
+            """SELECT p.*, COUNT(t.id) AS open_tasks FROM projects p
+               LEFT JOIN tasks t ON t.project_id=p.id AND t.status!='done'
+               WHERE p.status='active'
+               GROUP BY p.id ORDER BY p.priority, p.name""")]
         tasks = [dict(r) for r in self._read(
             """SELECT t.*, p.name AS project_name FROM tasks t JOIN projects p ON p.id=t.project_id
                WHERE p.status='active' AND t.status IN ('ready','in_progress','blocked')
