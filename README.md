@@ -28,6 +28,7 @@ python3 -m ai_os model-plan  # optional; uses ~/.ai-os/model.json or provider en
 python3 -m ai_os daily-cycle --save  # local brief + Ollama suggestion for review
 python3 -m ai_os proposals          # list pending proposals
 python3 -m ai_os provider-status    # check Ollama without generating text
+python3 -m ai_os supervizor-status  # read Supervizor's local operator snapshot (read-only)
 python3 -m ai_os schedule cycle-install  # separate 3:05 PM local model cycle
 python3 -m ai_os proposal accept <proposal-id>
 python3 -m ai_os proposal reject <proposal-id>
@@ -40,4 +41,4 @@ Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Op
 
 Actions default to preparation. `send_message`, `spend_money`, `trade`, `publish`, `delete_data`, and `deploy` require an approved, exact-scope record. The current loop does not connect to any external execution system.
 
-Install the default 3:00 PM local report with `python3 -m ai_os schedule install`; check it with `python3 -m ai_os schedule status`. See [the execution loop design](docs/EXECUTION_LOOP.md) and [the local daily brief](docs/DAILY_BRIEF.md).
+Install the default 3:00 PM local report with `python3 -m ai_os schedule install`; check it with `python3 -m ai_os schedule status`. The optional daily model cycle also includes a compact Supervizor snapshot. By default, `supervizor-status` reads `~/Desktop/ai-agent-test/ft_userdata/supervizor_reports/latest_daily_operator_run.json`; pass `--report PATH` to read a different report. It never starts Supervizor or modifies its files. See [the execution loop design](docs/EXECUTION_LOOP.md) and [the local daily brief](docs/DAILY_BRIEF.md).

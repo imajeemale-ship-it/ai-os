@@ -12,6 +12,7 @@ from ai_os.providers.openai_compatible import (
 from ai_os.proposal import model_proposal, pending_model_proposals
 from ai_os.report import render_daily_brief
 from ai_os.store import AIOS
+from ai_os.supervizor import read_supervizor_snapshot, render_supervizor_snapshot
 
 
 def render_cycle(store: AIOS, provider: OpenAICompatibleProvider,
@@ -39,7 +40,13 @@ def render_cycle(store: AIOS, provider: OpenAICompatibleProvider,
     else:
         lines.append(f"- Model suggestion unavailable: {proposal['error']}")
     pending = pending_model_proposals(store)
-    lines.extend(["", f"Pending proposals: {sum(p['status'] == 'pending' for p in pending)}", ""])
+    lines.extend([
+        "",
+        f"Pending proposals: {sum(p['status'] == 'pending' for p in pending)}",
+        "",
+        render_supervizor_snapshot(read_supervizor_snapshot()),
+        "",
+    ])
     return "\n".join(lines), proposal
 
 

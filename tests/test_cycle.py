@@ -18,6 +18,13 @@ class DailyCycleTests(unittest.TestCase):
             base_url="http://127.0.0.1:11434/v1", model="qwen-local", api_key=""
         )
         self.fixed = datetime.fromisoformat("2026-10-05T15:00:00-04:00")
+        self.snapshot_patch = patch("ai_os.cycle.read_supervizor_snapshot", return_value={
+            "status": "unavailable", "execution_allowed": None,
+            "trading_allowed": None, "account_mutation_allowed": None,
+            "reason": "report_missing",
+        })
+        self.snapshot_patch.start()
+        self.addCleanup(self.snapshot_patch.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -34,6 +41,8 @@ class DailyCycleTests(unittest.TestCase):
         self.assertIn("## Local model suggestion", rendered)
         self.assertIn("Proposal ID: `mdl_example`", rendered)
         self.assertIn("optional Ollama suggestion is separate", rendered)
+        self.assertIn("Supervizor Local Snapshot", rendered)
+        self.assertIn("report_missing", rendered)
         self.assertEqual(result["status"], "proposed")
         self.assertEqual(self.store.list_tasks()[0]["status"], "ready")
 
