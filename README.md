@@ -25,6 +25,8 @@ python3 -m ai_os plan
 python3 -m ai_os run
 python3 -m ai_os run --accept-task <recommended-task-id>
 python3 -m ai_os model-plan  # optional; requires provider environment variables
+python3 -m ai_os proposal accept <proposal-id>
+python3 -m ai_os proposal reject <proposal-id>
 python3 -m unittest discover -s tests -v
 ```
 

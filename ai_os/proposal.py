@@ -17,6 +17,39 @@ def eligible_tasks(store: AIOS) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def decide_model_proposal(store: AIOS, proposal_id: str, decision: str) -> dict[str, Any]:
+    if decision not in {"accepted", "rejected"}:
+        raise ValueError("Decision must be accepted or rejected")
+    events = store._read(
+        """SELECT * FROM events WHERE entity_type='model_proposal' AND entity_id=?
+           ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+        (proposal_id,),
+    )
+    if not events or events[0]["event_type"] != "model_proposal.proposed":
+        raise ValueError("Proposal is missing, already decided, or not available for acceptance")
+    proposal_event = events[0]
+    import json
+    payload = json.loads(proposal_event["payload"])
+    task_id = payload.get("task_id")
+    if decision == "accepted":
+        task = next((t for t in eligible_tasks(store) if t["task_id"] == task_id), None)
+        if task is None:
+            raise ValueError("Proposed task is no longer eligible")
+        updated = store.set_task_status(task_id, "in_progress")
+    else:
+        updated = None
+    event_id = store.record_event(
+        "model_proposal", proposal_id, f"model_proposal.{decision}",
+        {"task_id": task_id, "source_event_id": proposal_event["id"]},
+    )
+    return {
+        "id": proposal_id,
+        "event_id": event_id,
+        "decision": decision,
+        "task": updated,
+    }
+
+
 def model_proposal(store: AIOS, provider: OpenAICompatibleProvider) -> dict[str, Any]:
     proposal_id = new_id("mdl")
     tasks = eligible_tasks(store)

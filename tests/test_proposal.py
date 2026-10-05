@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from ai_os.proposal import eligible_tasks, model_proposal
+from ai_os.proposal import decide_model_proposal, eligible_tasks, model_proposal
 from ai_os.providers.openai_compatible import (
     OpenAICompatibleProvider, ProviderError, ProviderNotConfigured,
 )
@@ -106,6 +106,34 @@ class ProposalTests(unittest.TestCase):
         logged = next(e for e in events if e["id"] == result["event_id"])
         self.assertEqual(logged["event_type"], "model_proposal.proposed")
         self.assertEqual(logged["payload"]["task_id"], task_id)
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_explicit_accept_starts_the_proposed_task_and_logs_decision(self, opener_factory):
+        provider, task_id, reason = self.provider()
+        opener_factory.return_value.open.return_value = FakeResponse({
+            "choices": [{"message": {"content": json.dumps({"task_id": task_id, "reason": reason})}}]
+        })
+        proposal = model_proposal(self.store, provider)
+        result = decide_model_proposal(self.store, proposal["id"], "accepted")
+        self.assertEqual(result["task"]["status"], "in_progress")
+        self.assertEqual(self.store.list_tasks()[0]["status"], "in_progress")
+        event = next(e for e in self.store.recent_events() if e["id"] == result["event_id"])
+        self.assertEqual(event["event_type"], "model_proposal.accepted")
+        with self.assertRaises(ValueError):
+            decide_model_proposal(self.store, proposal["id"], "rejected")
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_explicit_reject_keeps_task_ready_and_logs_decision(self, opener_factory):
+        provider, task_id, reason = self.provider()
+        opener_factory.return_value.open.return_value = FakeResponse({
+            "choices": [{"message": {"content": json.dumps({"task_id": task_id, "reason": reason})}}]
+        })
+        proposal = model_proposal(self.store, provider)
+        result = decide_model_proposal(self.store, proposal["id"], "rejected")
+        self.assertIsNone(result["task"])
+        self.assertEqual(self.store.list_tasks()[0]["status"], "ready")
+        event = next(e for e in self.store.recent_events() if e["id"] == result["event_id"])
+        self.assertEqual(event["event_type"], "model_proposal.rejected")
 
     @patch("ai_os.providers.openai_compatible.build_opener")
     def test_malformed_or_extra_fields_fail_closed(self, urlopen):

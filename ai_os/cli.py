@@ -8,7 +8,7 @@ from typing import Any
 from ai_os.bootstrap import bootstrap
 from ai_os.loop import ExecutionLoop
 from ai_os.planner import Planner
-from ai_os.proposal import model_proposal
+from ai_os.proposal import decide_model_proposal, model_proposal
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.store import AIOS
 
@@ -44,6 +44,11 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("events")
     commands.add_parser("plan", help="Rank next actions without changing state")
     commands.add_parser("model-plan", help="Ask configured model for a validated task proposal")
+    proposal = commands.add_parser("proposal").add_subparsers(dest="decision", required=True)
+    accept = proposal.add_parser("accept", help="Accept a model proposal and start its task")
+    accept.add_argument("proposal_id")
+    reject = proposal.add_parser("reject", help="Reject a model proposal")
+    reject.add_argument("proposal_id")
     run = commands.add_parser("run", help="Run one dry planner cycle")
     run.add_argument("--accept-task", help="Accept the currently recommended task")
     return root
@@ -63,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
             _print(Planner(store).plan())
         elif args.command == "model-plan":
             _print(model_proposal(store, OpenAICompatibleProvider()))
+        elif args.command == "proposal":
+            decision = "accepted" if args.decision == "accept" else "rejected"
+            _print(decide_model_proposal(store, args.proposal_id, decision))
         elif args.command == "run":
             _print(ExecutionLoop(store).run_once(args.accept_task))
         elif args.command == "projects":
