@@ -30,12 +30,16 @@ class OpenAICompatibleProvider:
         self.timeout = timeout
 
     def configured(self) -> bool:
-        return bool(self.base_url and self.model and self.api_key)
+        if not self.base_url or not self.model:
+            return False
+        host = urlparse(self.base_url).hostname
+        local = host in {"localhost", "127.0.0.1", "::1"}
+        return bool(self.api_key) or local
 
     def propose(self, tasks: list[dict[str, Any]]) -> dict[str, str]:
         if not self.configured():
             raise ProviderNotConfigured(
-                "Set AI_OS_MODEL_BASE_URL, AI_OS_MODEL_NAME, and AI_OS_MODEL_API_KEY to enable model proposals"
+                "Set AI_OS_MODEL_BASE_URL and AI_OS_MODEL_NAME; remote providers also need AI_OS_MODEL_API_KEY"
             )
         parsed = urlparse(self.base_url)
         loopback = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
@@ -68,11 +72,13 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": json.dumps({"tasks": prompt_tasks}, ensure_ascii=False)},
             ],
         }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         request = Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(body).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}",
-                     "Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         class NoRedirect(HTTPRedirectHandler):

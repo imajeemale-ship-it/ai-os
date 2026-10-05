@@ -42,6 +42,22 @@ class ProposalTests(unittest.TestCase):
             provider.propose([{"task_id": "one"}])
 
     @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_local_provider_needs_no_api_key(self, opener_factory):
+        provider = OpenAICompatibleProvider(
+            base_url="http://127.0.0.1:11434/v1", model="local-model", api_key=""
+        )
+        task_id = self.task["id"]
+        opener_factory.return_value.open.return_value = FakeResponse({
+            "choices": [{"message": {"content": json.dumps({
+                "task_id": task_id, "reason": "Local proposal"
+            })}}]
+        })
+        result = provider.propose(eligible_tasks(self.store))
+        self.assertEqual(result["task_id"], task_id)
+        request = opener_factory.return_value.open.call_args.args[0]
+        self.assertNotIn("Authorization", request.headers)
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
     def test_remote_http_endpoint_is_refused_before_network(self, opener_factory):
         provider = OpenAICompatibleProvider(
             base_url="http://provider.example/v1", model="test-model", api_key="secret"
