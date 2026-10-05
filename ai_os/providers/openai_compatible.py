@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import os
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -20,14 +21,33 @@ class ProviderError(RuntimeError):
 
 
 class OpenAICompatibleProvider:
-    """Uses Chat Completions compatible APIs; secrets are read only from environment."""
+    """Uses OpenAI-compatible APIs; local settings may come from ~/.ai-os/model.json."""
 
     def __init__(self, base_url: str | None = None, model: str | None = None,
                  api_key: str | None = None, timeout: float = 30):
-        self.base_url = (base_url or os.environ.get("AI_OS_MODEL_BASE_URL", "")).rstrip("/")
-        self.model = model or os.environ.get("AI_OS_MODEL_NAME", "")
-        self.api_key = api_key or os.environ.get("AI_OS_MODEL_API_KEY", "")
+        config = self._load_config()
+        self.base_url = (base_url or os.environ.get("AI_OS_MODEL_BASE_URL")
+                         or config.get("base_url", "")).rstrip("/")
+        self.model = model or os.environ.get("AI_OS_MODEL_NAME") or config.get("model", "")
+        self.api_key = (api_key or os.environ.get("AI_OS_MODEL_API_KEY")
+                        or config.get("api_key", ""))
         self.timeout = timeout
+
+    @staticmethod
+    def _load_config() -> dict[str, str]:
+        path = Path.home() / ".ai-os" / "model.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ProviderError(f"Could not read model config ({type(exc).__name__})") from None
+        if not isinstance(data, dict) or any(
+            key in data and not isinstance(data[key], str)
+            for key in ("base_url", "model", "api_key")
+        ):
+            raise ProviderError("Model config must be a JSON object with string values")
+        return data
 
     def configured(self) -> bool:
         if not self.base_url or not self.model:
@@ -61,6 +81,7 @@ class OpenAICompatibleProvider:
         body = {
             "model": self.model,
             "temperature": 0,
+            "max_tokens": 128,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content":

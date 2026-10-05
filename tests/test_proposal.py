@@ -37,9 +37,40 @@ class ProposalTests(unittest.TestCase):
         ), task_id or self.task["id"], reason
 
     def test_missing_config_fails_without_network(self):
-        provider = OpenAICompatibleProvider(base_url="", model="", api_key="")
-        with self.assertRaises(ProviderNotConfigured):
-            provider.propose([{"task_id": "one"}])
+        with patch.dict("os.environ", {
+            "AI_OS_MODEL_BASE_URL": "", "AI_OS_MODEL_NAME": "", "AI_OS_MODEL_API_KEY": ""
+        }), patch("ai_os.providers.openai_compatible.Path.home", return_value=Path(self.temp.name)):
+            provider = OpenAICompatibleProvider()
+            with self.assertRaises(ProviderNotConfigured):
+                provider.propose([{"task_id": "one"}])
+
+    @patch("ai_os.providers.openai_compatible.build_opener")
+    def test_user_model_config_supplies_local_defaults_without_key(self, opener_factory):
+        config = Path(self.temp.name) / ".ai-os"
+        config.mkdir()
+        (config / "model.json").write_text(json.dumps({
+            "base_url": "http://127.0.0.1:11434/v1", "model": "qwen-local", "api_key": ""
+        }))
+        opener_factory.return_value.open.return_value = FakeResponse({
+            "choices": [{"message": {"content": json.dumps({
+                "task_id": self.task["id"], "reason": "Configured locally"
+            })}}]
+        })
+        with patch("ai_os.providers.openai_compatible.Path.home", return_value=Path(self.temp.name)):
+            provider = OpenAICompatibleProvider()
+            result = provider.propose(eligible_tasks(self.store))
+        self.assertEqual(result["task_id"], self.task["id"])
+        self.assertEqual(provider.model, "qwen-local")
+        request = opener_factory.return_value.open.call_args.args[0]
+        self.assertNotIn("Authorization", request.headers)
+
+    def test_model_config_rejects_non_string_values(self):
+        config = Path(self.temp.name) / ".ai-os"
+        config.mkdir()
+        (config / "model.json").write_text('{"model": 7}')
+        with patch("ai_os.providers.openai_compatible.Path.home", return_value=Path(self.temp.name)):
+            with self.assertRaises(ProviderError):
+                OpenAICompatibleProvider()
 
     @patch("ai_os.providers.openai_compatible.build_opener")
     def test_local_provider_needs_no_api_key(self, opener_factory):
@@ -79,6 +110,7 @@ class ProposalTests(unittest.TestCase):
         self.assertIn("Bearer secret", request.headers["Authorization"])
         request_body = json.loads(request.data)
         self.assertEqual(request_body["temperature"], 0)
+        self.assertEqual(request_body["max_tokens"], 128)
         self.assertEqual(request_body["response_format"], {"type": "json_object"})
         self.assertNotIn("private-notes-sentinel", json.dumps(request_body))
 

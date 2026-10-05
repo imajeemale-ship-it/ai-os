@@ -24,13 +24,13 @@ python3 -m ai_os task add <project-id> "Run the paper-trading health check" --pr
 python3 -m ai_os plan
 python3 -m ai_os run
 python3 -m ai_os run --accept-task <recommended-task-id>
-python3 -m ai_os model-plan  # optional; requires provider environment variables
+python3 -m ai_os model-plan  # optional; uses ~/.ai-os/model.json or provider environment variables
 python3 -m ai_os proposal accept <proposal-id>
 python3 -m ai_os proposal reject <proposal-id>
 python3 -m unittest discover -s tests -v
 ```
 
-Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Install with `python3 -m pip install -e .`; `python3 -m ai_os` works even when your Python scripts directory is not on PATH.
+Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Optional model settings are read from `~/.ai-os/model.json`; environment variables override that file. Local Ollama needs only `base_url` and `model` (no API key). Install with `python3 -m pip install -e .`; `python3 -m ai_os` works even when your Python scripts directory is not on PATH.
 
 ## Safety model
 
