@@ -67,6 +67,7 @@ cat > "$PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+chmod 644 "$PLIST"
 
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
