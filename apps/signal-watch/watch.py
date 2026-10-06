@@ -441,6 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backfill", type=int, default=0, help="Import up to N most recent messages per channel before live listening.")
     parser.add_argument("--dry-run", action="store_true", help="Print alerts locally; never send them.")
     parser.add_argument("--once", action="store_true", help="Backfill and exit; useful for testing.")
+    parser.add_argument("--test-alert", action="store_true", help="Send one clearly labeled Telegram delivery test and exit.")
     return parser
 
 
@@ -448,6 +449,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.chat = args.chat or []
+    if args.test_alert:
+        sent, error = send_alert("Signal Watch test: alert delivery is connected. No order was placed.")
+        if sent:
+            print("test_alert=sent")
+            return 0
+        print(f"test_alert=failed reason={error}", file=sys.stderr)
+        return 2
     if args.backfill < 0 or args.backfill > 10000:
         parser.error("--backfill must be between 0 and 10000")
     try:
