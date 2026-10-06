@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import ssl
 import sys
 import urllib.parse
 import urllib.request
@@ -261,6 +262,15 @@ def format_alert(row: sqlite3.Row) -> str:
     return message[:MAX_ALERT_CHARS]
 
 
+def telegram_ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
 def send_alert(message: str, *, dry_run: bool = False) -> tuple[bool, str]:
     if dry_run:
         return False, "dry_run"
@@ -279,7 +289,7 @@ def send_alert(message: str, *, dry_run: bool = False) -> tuple[bool, str]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:
+        with urllib.request.urlopen(request, timeout=8, context=telegram_ssl_context()) as response:
             body = json.loads(response.read().decode("utf-8"))
         if body.get("ok") is True:
             return True, ""
