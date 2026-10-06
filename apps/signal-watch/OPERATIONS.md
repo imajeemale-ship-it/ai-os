@@ -41,6 +41,34 @@ export TELEGRAM_CHAT_ID="..."
 
 Keep the bot token private. Restart Signal Watch after configuring it. Verify with a test alert only after checking that the bot chat ID belongs to you.
 
+
+## Run as a macOS background service
+
+Install or refresh the LaunchAgent from the AI-OS repo:
+
+```sh
+cd /Users/unagidon/Documents/ai-os
+apps/signal-watch/scripts/install-launch-agent.sh
+```
+
+The installer prompts for the Telegram bot token and chat ID, stores them in `~/.ai-os/signal_watch.env` with owner-only permissions, creates `~/Library/LaunchAgents/com.ai-os.signal-watch.plist`, starts the service immediately, and restarts it automatically if it exits.
+
+Check status and recent logs:
+
+```sh
+cd /Users/unagidon/Documents/ai-os
+apps/signal-watch/scripts/status-launch-agent.sh
+```
+
+Stop and remove the LaunchAgent:
+
+```sh
+cd /Users/unagidon/Documents/ai-os
+apps/signal-watch/scripts/uninstall-launch-agent.sh
+```
+
+Logs are written to `~/.ai-os/logs/signal-watch.out.log` and `~/.ai-os/logs/signal-watch.err.log`.
+
 ## Trade execution workflow (manual)
 
 1. Treat a Telegram call as an unverified lead. Check the source post time and whether the entry is still valid.
