@@ -89,3 +89,23 @@ No software can guarantee that you will receive, read, or execute a signal in ti
 ## Delivery test
 
 Once the private bot token and your direct-message chat ID are configured in the launch environment, run `python3 apps/signal-watch/watch.py --test-alert`. It sends one clearly labeled test message. It does not connect to sources or a broker.
+
+## Paper trading lane
+
+Signal Watch can run a local paper-trading lane that never places broker or exchange orders. It reads logged signals from `~/.ai-os/signal_watch.db`, opens simulated long positions only from ranked sources with parsed entries and targets, checks Coinbase public prices, takes 25% simulated exits at TP1, TP2, and TP3, closes the remaining runner at TP4, and records stops or realized paper P/L.
+
+Install or refresh the scheduled paper trader:
+
+```sh
+cd /Users/unagidon/Documents/ai-os
+apps/signal-watch/scripts/install-paper-trader-agent.sh
+```
+
+Check the scheduled paper trader:
+
+```sh
+cd /Users/unagidon/Documents/ai-os
+apps/signal-watch/scripts/status-paper-trader-agent.sh
+```
+
+The job wakes every 5 minutes through `com.ai-os.signal-watch-paper-trader`, runs once, writes logs to `~/.ai-os/logs/signal-watch-paper.out.log`, then exits. A `last exit code = 0` means the latest run completed cleanly.
