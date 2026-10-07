@@ -71,8 +71,7 @@ chmod 644 "$PLIST"
 
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl kickstart -k "gui/$(id -u)/$LABEL"
-sleep 2
+sleep 3
 
 echo "Signal Watch launch agent installed."
 echo "Label: $LABEL"

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fcntl
 import hashlib
 import json
 import os
@@ -25,6 +26,7 @@ from typing import Any, Iterable
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SUPERVIZOR_ROOT = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata"
 DEFAULT_DB = Path.home() / ".ai-os" / "signal_watch.db"
+DEFAULT_LOCK = Path.home() / ".ai-os" / "signal_watch.lock"
 CANDIDATE_RE = re.compile(
     r"\b(Long|Short|Entry|Targets?|TP|Stop\s*Loss|Stoploss|DCA|leverage|buy|sell)\b|"
     r"#[A-Z][A-Z0-9]{1,14}\b",
@@ -40,6 +42,21 @@ OUTCOME_RE = re.compile(r"\b(?:TP\s*\d+\s*(?:hit|reached|✅|🎯)|profit\s*[:=]
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def acquire_process_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("w", encoding="utf-8")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        handle.close()
+        raise RuntimeError(f"Signal Watch is already running; lock held at {path}") from error
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"{os.getpid()}\n")
+    handle.flush()
+    return handle
 
 
 def is_signal_candidate(text: str) -> bool:
@@ -117,7 +134,8 @@ class SignalStore:
             """)
 
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=15)
+        db = sqlite3.connect(self.path, timeout=30)
+        db.execute("PRAGMA busy_timeout=30000")
         db.row_factory = sqlite3.Row
         return db
 
@@ -446,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--env", type=Path, help="Telethon credentials file; contents are never printed.")
     parser.add_argument("--session-dir", type=Path, help="Existing authorized Telethon session folder.")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK)
     parser.add_argument("--chat", action="append", help="Telegram channel/group title, username, or link. Repeat for each.")
     parser.add_argument("--dialog-limit", type=int, default=100)
     parser.add_argument("--backfill", type=int, default=0, help="Import up to N most recent messages per channel before live listening.")
@@ -472,7 +491,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.env is None and not (args.supervizor_root / ".env.telegram").is_file():
             raise FileNotFoundError("Supervizor .env.telegram not found; pass --env or --supervizor-root.")
         if args.chat:
-            return asyncio.run(run_watch(args))
+            lock_handle = acquire_process_lock(args.lock_file)
+            try:
+                return asyncio.run(run_watch(args))
+            finally:
+                lock_handle.close()
         return asyncio.run(list_dialogs(args))
     except KeyboardInterrupt:
         print("Signal Watch stopped.", flush=True)
