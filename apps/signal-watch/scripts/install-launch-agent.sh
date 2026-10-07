@@ -45,7 +45,7 @@ cat > "$PLIST" <<PLIST
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>set -a; source '$ENV_FILE'; set +a; cd '$REPO_ROOT'; exec '$PYTHON_BIN' apps/signal-watch/watch.py --chat 'Predictūm X — The Most Powerful Indicator' --chat 'Whales Crypto Guide' --chat 'Technical CRYPTO Analyst' --chat 'The Bull' --chat 'Crypto Goddess CHAT' --chat 'Crypto Signal'</string>
+    <string>set -a; source '$ENV_FILE'; set +a; cd '$REPO_ROOT'; exec '$PYTHON_BIN' apps/signal-watch/watch.py --chat 'Predictūm X — The Most Powerful Indicator' --chat 'Wallstreet Queen Official®' --chat 'Crypto Best Futures Signals' --chat 'Technical CRYPTO Analyst' --chat 'Whales Crypto Guide' --chat 'The Bull' --chat 'Crypto Goddess CHAT' --chat 'Crypto Signal'</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$REPO_ROOT</string>

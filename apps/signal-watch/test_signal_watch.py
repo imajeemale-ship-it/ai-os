@@ -77,6 +77,14 @@ class SignalWatchTests(unittest.TestCase):
         self.assertTrue(any("STALE" in flag for flag in flags))
         self.assertTrue(any("DCA" in flag for flag in flags))
 
+    def test_alert_includes_source_trade_plan(self):
+        signal = self.make_signal(source="Wallstreet Queen Official®")
+        self.assertTrue(self.db.add(signal))
+        alert = watch.format_alert(self.db.pending()[0])
+        self.assertIn("Source rank: Tier 1", alert)
+        self.assertIn("Exit plan: take partial profit around +3%", alert)
+        self.assertIn("Timeout:", alert)
+
     def test_delivery_fails_closed_without_bot_configuration(self):
         saved = {key: os.environ.pop(key, None)
                  for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")}

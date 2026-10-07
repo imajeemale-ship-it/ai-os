@@ -37,6 +37,58 @@ PAIR_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,14})\s*[/_-]\s*(?:USDT|USD|USDC|BTC|ET
 DOLLAR_TICKER_RE = re.compile(r"\$([A-Z][A-Z0-9]{1,14})\b")
 BARE_TICKER_RE = re.compile(r"^\s*([A-Z][A-Z0-9]{1,14})(?:USDT|USD|USDC|BTC|ETH)?\s+(?:LONG|SHORT|BUY|SELL)\b", re.IGNORECASE)
 MAX_ALERT_CHARS = 3800
+
+SOURCE_POLICIES = {
+    "wallstreet queen official": {
+        "rank": "Tier 1",
+        "bias": "monitor",
+        "plan": "take partial profit into the first strong move; do not wait for screenshots",
+        "target_pct": 3.0,
+        "trail_pct": 2.0,
+        "timeout_hours": 12,
+    },
+    "crypto best futures signals": {
+        "rank": "Tier 2",
+        "bias": "futures-risk",
+        "plan": "fast scalp only; partial profits early and hard timeout",
+        "target_pct": 3.0,
+        "trail_pct": 2.0,
+        "timeout_hours": 6,
+    },
+    "technical crypto analyst": {
+        "rank": "Tier 3",
+        "bias": "selective",
+        "plan": "use only clean entries with stop loss and target; no chasing",
+        "target_pct": 3.0,
+        "trail_pct": 2.0,
+        "timeout_hours": 12,
+    },
+    "whales crypto guide": {
+        "rank": "Tier 4",
+        "bias": "noisy",
+        "plan": "quick-take setup; skip if the move already ran",
+        "target_pct": 3.0,
+        "trail_pct": 1.5,
+        "timeout_hours": 6,
+    },
+    "the bull": {
+        "rank": "Tier 5",
+        "bias": "watch-only",
+        "plan": "paper monitor until newer data improves",
+        "target_pct": 3.0,
+        "trail_pct": 1.5,
+        "timeout_hours": 6,
+    },
+}
+
+DEFAULT_TRADE_POLICY = {
+    "rank": "Unranked",
+    "bias": "manual-review",
+    "plan": "manual review only; require entry, target, invalidation, and current price check",
+    "target_pct": 3.0,
+    "trail_pct": 2.0,
+    "timeout_hours": 8,
+}
 OUTCOME_RE = re.compile(r"\b(?:TP\s*\d+\s*(?:hit|reached|✅|🎯)|profit\s*[:=]|closed\s+(?:in|with)\s+(?:profit|loss))\b", re.IGNORECASE)
 
 
@@ -216,6 +268,31 @@ def parse_signal(parse_fn, source: str, message_id: int, sent_at: str, text: str
     return Signal(source, int(message_id), sent_at, text, parsed, dedupe, url)
 
 
+def source_policy(source: str) -> dict[str, Any]:
+    key = " ".join(re.sub(r"[^a-z0-9 ]+", " ", (source or "").casefold()).split())
+    for name, policy in SOURCE_POLICIES.items():
+        normalized = " ".join(re.sub(r"[^a-z0-9 ]+", " ", name).split())
+        if key == normalized or key.startswith(normalized) or normalized.startswith(key):
+            return policy
+    return DEFAULT_TRADE_POLICY
+
+
+def trade_plan_lines(source: str, parsed: dict[str, Any]) -> list[str]:
+    policy = source_policy(source)
+    target_pct = policy["target_pct"]
+    trail_pct = policy["trail_pct"]
+    timeout_hours = policy["timeout_hours"]
+    lines = [
+        f"Source rank: {policy['rank']} · {policy['bias']}",
+        f"Exit plan: take partial profit around +{target_pct:g}%; move stop or trail by ~{trail_pct:g}% after strength",
+        f"Timeout: if no clean move within {timeout_hours:g}h, treat as stale and skip/review",
+        f"Rule: {policy['plan']}",
+    ]
+    if parsed.get("leverage_detected") or parsed.get("leverage_or_derivatives_detected"):
+        lines.append("Risk mode: futures/leverage language detected; use paper review or tiny size only")
+    return lines
+
+
 def risk_flags(parsed: dict[str, Any], sent_at: str) -> list[str]:
     warnings: list[str] = []
     if parsed.get("leverage_detected") or parsed.get("leverage_or_derivatives_detected"):
@@ -269,6 +346,7 @@ def format_alert(row: sqlite3.Row) -> str:
         f"Targets: {target_text}",
         f"Stop loss: {row['stop_loss'] if row['stop_loss'] is not None else 'MISSING'}",
         "Review: " + (" | ".join(warnings) if warnings else "no parser warnings"),
+        *trade_plan_lines(row["source"], parsed),
         "Status: information only · no order placed",
     ]
     if row["source_url"]:

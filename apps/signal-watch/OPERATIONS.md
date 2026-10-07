@@ -8,8 +8,10 @@ This runs continuously on Davids-Air-2. Keep the Mac awake and connected to the 
 cd /Users/unagidon/Documents/ai-os
 python3 apps/signal-watch/watch.py \
   --chat "Predictūm X — The Most Powerful Indicator" \
-  --chat "Whales Crypto Guide" \
+  --chat "Wallstreet Queen Official®" \
+  --chat "Crypto Best Futures Signals" \
   --chat "Technical CRYPTO Analyst" \
+  --chat "Whales Crypto Guide" \
   --chat "The Bull" \
   --chat "Crypto Goddess CHAT" \
   --chat "Crypto Signal"
