@@ -31,7 +31,7 @@ spec.loader.exec_module(watch)
 
 STABLES = {"USDT", "USDC", "USD", "DAI", "FDUSD", "TUSD"}
 NOISE = {"TP", "SL", "VIP"}
-OUTCOME_ONLY_RE = re.compile(r"\b(?:target\s*\d*\s*(?:hit|done)|all\s+targets\s+done|profit\s*[:=]|period\s*:|closed\s+(?:in|with)\s+(?:profit|loss))\b", re.I)
+OUTCOME_ONLY_RE = re.compile(r"\b(?:take-profit\s+target|target\s*\d*\s*(?:hit|done|✅)|tp\s*\d+\s*(?:hit|✅)|all\s+targets\s+done|profit\s*[:=]|period\s*:|closed\s+(?:in|with)\s+(?:profit|loss))\b", re.I)
 
 
 @dataclass
@@ -46,6 +46,10 @@ class CallResult:
     final_price: float | None
     max_gain_pct: float | None
     final_return_pct: float | None
+    tp1_pct: float | None
+    tp4_pct: float | None
+    best_tp_hit: int
+    ladder_return_pct: float | None
     classification: str
     reason: str
     url: str | None
@@ -135,6 +139,53 @@ def entry_from_parsed(parsed: dict[str, Any], text: str) -> float | None:
     return None
 
 
+
+def targets_from_parsed(parsed: dict[str, Any], text: str) -> list[float]:
+    values = parsed.get("targets") or []
+    targets: list[float] = []
+    if isinstance(values, list):
+        for value in values:
+            try:
+                targets.append(float(str(value).replace(",", "")))
+            except Exception:
+                pass
+    if targets:
+        return targets
+    matches = re.findall(r"(?:target|tp)\s*\d*\s*(?:[:-]|–|to)\s*\$?([0-9][0-9,]*(?:\.[0-9]+)?)", text, re.I)
+    for value in matches:
+        num = _num(value)
+        if num is not None:
+            targets.append(num)
+    return targets
+
+
+def ladder_result(base: float, side: str, highs: list[float], lows: list[float], targets: list[float]) -> tuple[float | None, float | None, int, float | None]:
+    if not targets:
+        return None, None, 0, None
+    ordered = sorted(targets, reverse=(side == "short"))[:4]
+    hit = 0
+    for target in ordered:
+        if side == "short":
+            reached = min(lows) <= target
+        else:
+            reached = max(highs) >= target
+        if reached:
+            hit += 1
+    def pct(target: float | None) -> float | None:
+        if target is None:
+            return None
+        return ((base - target) / base) * 100 if side == "short" else ((target - base) / base) * 100
+    tp1 = pct(ordered[0]) if len(ordered) >= 1 else None
+    tp4 = pct(ordered[3]) if len(ordered) >= 4 else None
+    if hit == 0:
+        return tp1, tp4, 0, 0.0
+    per_exit = 1 / min(4, len(ordered))
+    ladder = 0.0
+    for target in ordered[:hit]:
+        ladder += (pct(target) or 0.0) * per_exit
+    return tp1, tp4, hit, ladder
+
+
 def ssl_context() -> ssl.SSLContext:
     try:
         import certifi
@@ -190,24 +241,24 @@ def candles(product: str, start: datetime, end: datetime, granularity: int = 360
     return rows
 
 
-def evaluate(ticker: str, side: str, sent_at: datetime, entry: float | None, horizon_hours: int) -> tuple[float | None, float | None, float | None, float | None, str, str]:
+def evaluate(ticker: str, side: str, sent_at: datetime, entry: float | None, targets: list[float], horizon_hours: int) -> tuple[float | None, float | None, float | None, float | None, float | None, float | None, int, float | None, str, str]:
     product = coinbase_product(ticker)
     if not product:
-        return None, None, None, None, "unverified", "ticker not on Coinbase USD/USDT/USDC"
+        return None, None, None, None, None, None, 0, None, "unverified", "ticker not on Coinbase USD/USDT/USDC"
     now = datetime.now(timezone.utc)
     start = sent_at - timedelta(hours=1)
     end = min(sent_at + timedelta(hours=horizon_hours), now)
     if end <= sent_at + timedelta(minutes=10):
-        return None, None, None, None, "unverified", "too recent"
+        return None, None, None, None, None, None, 0, None, "unverified", "too recent"
     try:
         rows = candles(product, start, end)
     except urllib.error.HTTPError as err:
-        return None, None, None, None, "unverified", f"Coinbase HTTP {err.code}"
+        return None, None, None, None, None, None, 0, None, "unverified", f"Coinbase HTTP {err.code}"
     except Exception as err:
-        return None, None, None, None, "unverified", f"price fetch failed: {err.__class__.__name__}"
+        return None, None, None, None, None, None, 0, None, "unverified", f"price fetch failed: {err.__class__.__name__}"
     after = [row for row in rows if datetime.fromtimestamp(row[0], timezone.utc) >= sent_at]
     if not after:
-        return None, None, None, None, "unverified", "no candles after signal"
+        return None, None, None, None, None, None, 0, None, "unverified", "no candles after signal"
     base = entry or float(after[0][4])
     first = float(after[0][4])
     final = float(after[-1][4])
@@ -219,7 +270,11 @@ def evaluate(ticker: str, side: str, sent_at: datetime, entry: float | None, hor
     else:
         max_gain = ((max(highs) - base) / base) * 100
         final_ret = ((final - base) / base) * 100
-    if max_gain >= 3 and final_ret >= 1:
+    tp1, tp4, best_tp_hit, ladder_return = ladder_result(base, side, highs, lows, targets)
+    if best_tp_hit >= 1:
+        klass = "tp_hit"
+        reason = f"hit TP{best_tp_hit}; ladder return {ladder_return:.2f}%"
+    elif max_gain >= 3 and final_ret >= 1:
         klass = "right"
         reason = "moved at least +3% and retained at least +1%"
     elif max_gain >= 3 and final_ret < 1:
@@ -231,7 +286,7 @@ def evaluate(ticker: str, side: str, sent_at: datetime, entry: float | None, hor
     else:
         klass = "flat"
         reason = "no clean edge yet"
-    return base, first, final, max_gain, klass, reason + f"; final {final_ret:.2f}%"
+    return base, first, final, max_gain, tp1, tp4, best_tp_hit, ladder_return, klass, reason + f"; final {final_ret:.2f}%"
 
 
 async def audit_channel(client, parse_fn, channel: str, limit: int, horizon_hours: int) -> tuple[str, list[CallResult], dict[str, int]]:
@@ -258,7 +313,8 @@ async def audit_channel(client, parse_fn, channel: str, limit: int, horizon_hour
         stats["parsed_ticker"] += 1
         side = side_from_text(text, parsed)
         entry = entry_from_parsed(parsed, text)
-        base, first, final, max_gain, klass, reason = evaluate(ticker, side, sent, entry, horizon_hours)
+        targets = targets_from_parsed(parsed, text)
+        base, first, final, max_gain, tp1, tp4, best_tp_hit, ladder_return, klass, reason = evaluate(ticker, side, sent, entry, targets, horizon_hours)
         if klass != "unverified":
             stats["verified"] += 1
         final_ret = None if base is None or final is None else (((base - final) / base) * 100 if side == "short" else ((final - base) / base) * 100)
@@ -273,6 +329,10 @@ async def audit_channel(client, parse_fn, channel: str, limit: int, horizon_hour
             final_price=final,
             max_gain_pct=max_gain,
             final_return_pct=final_ret,
+            tp1_pct=tp1,
+            tp4_pct=tp4,
+            best_tp_hit=best_tp_hit,
+            ladder_return_pct=ladder_return,
             classification=klass,
             reason=reason,
             url=watch.message_url(entity, int(message.id)),
@@ -288,6 +348,10 @@ def summarize(title: str, results: list[CallResult], stats: dict[str, int]) -> d
     verified = [row for row in results if row.classification not in {"unverified"}]
     avg_final = sum(row.final_return_pct or 0 for row in verified) / len(verified) if verified else None
     avg_max = sum(row.max_gain_pct or 0 for row in verified) / len(verified) if verified else None
+    ladder_rows = [row for row in verified if row.ladder_return_pct is not None]
+    avg_ladder = sum(row.ladder_return_pct or 0 for row in ladder_rows) / len(ladder_rows) if ladder_rows else None
+    tp1_hit_rate = (sum(1 for row in ladder_rows if row.best_tp_hit >= 1) / len(ladder_rows) * 100) if ladder_rows else None
+    tp4_hit_rate = (sum(1 for row in ladder_rows if row.best_tp_hit >= 4) / len(ladder_rows) * 100) if ladder_rows else None
     return {
         "channel": title,
         "messages_scanned": stats["messages"],
@@ -297,6 +361,9 @@ def summarize(title: str, results: list[CallResult], stats: dict[str, int]) -> d
         "counts": counts,
         "avg_final_return_pct": avg_final,
         "avg_max_gain_pct": avg_max,
+        "avg_ladder_return_pct": avg_ladder,
+        "tp1_hit_rate_pct": tp1_hit_rate,
+        "tp4_hit_rate_pct": tp4_hit_rate,
     }
 
 
