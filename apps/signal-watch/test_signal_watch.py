@@ -25,17 +25,18 @@ class SignalWatchTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def make_signal(self, message_id=101, source="Sample Signals", text=None):
-        raw = text or "#BTC Long\nEntry: 65000 - 65100\nTargets: 66000, 67000\nStop Loss: 64000"
+    def make_signal(self, message_id=101, source="Sample Signals", text=None,
+                    sent_at="2026-10-06T12:00:00Z", side="buy"):
+        raw = text or f"#BTC {'Long' if side == 'buy' else 'Short'}\nEntry: 65000 - 65100\nTargets: 66000, 67000\nStop Loss: 64000"
         parsed = {
             "pair": "BTC/USDT",
-            "side": "buy",
+            "side": side,
             "entry": {"low": 65000, "high": 65100},
             "targets": [66000, 67000],
             "stop_loss": 64000,
             "leverage_detected": False,
         }
-        return watch.Signal(source, message_id, "2026-10-06T12:00:00Z", raw, parsed,
+        return watch.Signal(source, message_id, sent_at, raw, parsed,
                             f"hash-{message_id}", "https://t.me/sample/101")
 
     def test_persists_ticker_and_merges_repeated_signal(self):
@@ -60,6 +61,48 @@ class SignalWatchTests(unittest.TestCase):
         alert = watch.format_alert(row)
         self.assertIn("Conviction:", alert)
         self.assertIn("Conviction reasons:", alert)
+        self.assertIn("Consensus:", alert)
+
+    def test_consensus_groups_agreeing_channels_within_configured_window(self):
+        store = watch.SignalStore(Path(self.temp.name) / "consensus.db", consensus_window_minutes=120)
+        first = self.make_signal(message_id=1, source="Channel A")
+        second = self.make_signal(message_id=2, source="Channel B", sent_at="2026-10-06T13:00:00Z")
+        self.assertTrue(store.add(first))
+        self.assertTrue(store.add(second))
+        rows = store.pending(limit=10)
+        latest = next(row for row in rows if row["message_id"] == 2)
+        self.assertEqual(latest["number_of_channels"], 2)
+        self.assertEqual(json.loads(latest["agreeing_channels_json"]), ["Channel A", "Channel B"])
+        self.assertEqual(json.loads(latest["disagreeing_channels_json"]), [])
+        self.assertEqual(latest["consensus_score"], 100.0)
+        self.assertEqual(latest["consensus_first_seen"], "2026-10-06T12:00:00Z")
+        self.assertEqual(latest["consensus_latest_seen"], "2026-10-06T13:00:00Z")
+
+    def test_consensus_records_disagreement_and_updates_conviction(self):
+        store = watch.SignalStore(Path(self.temp.name) / "consensus.db", consensus_window_minutes=120)
+        self.assertTrue(store.add(self.make_signal(message_id=1, source="Channel A")))
+        self.assertTrue(store.add(self.make_signal(message_id=2, source="Channel B", side="short",
+                                                   sent_at="2026-10-06T13:00:00Z")))
+        row = next(row for row in store.pending(limit=10) if row["message_id"] == 2)
+        self.assertEqual(row["number_of_channels"], 2)
+        self.assertEqual(json.loads(row["agreeing_channels_json"]), ["Channel B"])
+        self.assertEqual(json.loads(row["disagreeing_channels_json"]), ["Channel A"])
+        self.assertEqual(row["consensus_score"], 50.0)
+        self.assertTrue(any("Consensus: 50.0/100" in reason for reason in json.loads(row["conviction_reasons_json"])))
+
+    def test_consensus_starts_new_group_outside_window(self):
+        store = watch.SignalStore(Path(self.temp.name) / "consensus.db", consensus_window_minutes=60)
+        self.assertTrue(store.add(self.make_signal(message_id=1, source="Channel A")))
+        self.assertTrue(store.add(self.make_signal(message_id=2, source="Channel B", sent_at="2026-10-06T14:01:00Z")))
+        rows = store.pending(limit=10)
+        latest = next(row for row in rows if row["message_id"] == 2)
+        self.assertEqual(latest["number_of_channels"], 1)
+        self.assertEqual(latest["consensus_score"], 50.0)
+        self.assertNotEqual(rows[0]["consensus_group_id"], latest["consensus_group_id"])
+
+    def test_consensus_window_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            watch.SignalStore(Path(self.temp.name) / "invalid.db", consensus_window_minutes=0)
 
     def test_conviction_uses_historical_results_and_duplicate_agreement(self):
         with self.db.connect() as db:
@@ -80,7 +123,7 @@ class SignalWatchTests(unittest.TestCase):
         row = self.db.pending(limit=10)[-1]
         reasons = json.loads(row["conviction_reasons_json"])
         self.assertTrue(any("Channel history" in reason for reason in reasons))
-        self.assertTrue(any("Duplicate agreement" in reason for reason in reasons))
+        self.assertTrue(any("Consensus:" in reason for reason in reasons))
 
     def test_paper_pipeline_skips_low_conviction_signal(self):
         paper_spec = importlib.util.spec_from_file_location(

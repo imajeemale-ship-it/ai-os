@@ -106,6 +106,13 @@ warnings. Historical channel performance contributes up to 60 points; completene
 trader requires at least 50 points, so low-conviction calls remain visible but are
 not added to the paper performance sample.
 
+Consensus is persisted in `consensus_groups` and on each signal row. Signals with
+the same ticker are grouped when their timestamps are within the configured window;
+the default is 360 minutes. A consensus score of 50 means one channel with no
+cross-channel confirmation, while multiple channels are scored by the share of
+agreeing versus disagreeing channel directions. Use
+`--consensus-window-minutes N` when starting Signal Watch to change the window.
+
 Install or refresh the scheduled paper trader:
 
 ```sh

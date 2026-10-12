@@ -17,6 +17,11 @@ MEDIUM, or HIGH confidence. The score explains channel history, completeness,
 risk/reward, recent cross-channel agreement, and freshness. The paper lane accepts
 only MEDIUM or HIGH conviction signals in addition to its existing safety gate.
 
+Consensus groups same-ticker mentions across channels within a configurable window
+(6 hours by default). Alerts show the consensus score, channel count, agreeing and
+disagreeing channel counts, and the group's first/latest timestamps. Override the
+window with `--consensus-window-minutes`.
+
 ## Requirements
 
 - Python 3.11+

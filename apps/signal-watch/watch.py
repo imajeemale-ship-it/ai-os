@@ -37,6 +37,7 @@ PAIR_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,14})\s*[/_-]\s*(?:USDT|USD|USDC|BTC|ET
 DOLLAR_TICKER_RE = re.compile(r"\$([A-Z][A-Z0-9]{1,14})\b")
 BARE_TICKER_RE = re.compile(r"^\s*([A-Z][A-Z0-9]{1,14})(?:USDT|USD|USDC|BTC|ETH)?\s+(?:LONG|SHORT|BUY|SELL)\b", re.IGNORECASE)
 MAX_ALERT_CHARS = 3800
+DEFAULT_CONSENSUS_WINDOW_MINUTES = 360
 
 SOURCE_POLICIES = {
     "wallstreet queen official": {
@@ -150,9 +151,12 @@ class Signal:
 
 
 class SignalStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, consensus_window_minutes: int = DEFAULT_CONSENSUS_WINDOW_MINUTES):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        if consensus_window_minutes <= 0:
+            raise ValueError("Consensus window must be positive")
+        self.consensus_window_minutes = consensus_window_minutes
         with self.connect() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -178,6 +182,18 @@ class SignalStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker, sent_at);
                 CREATE INDEX IF NOT EXISTS idx_signals_alert ON signals(alert_status, received_at);
+                CREATE TABLE IF NOT EXISTS consensus_groups (
+                    id INTEGER PRIMARY KEY,
+                    ticker TEXT,
+                    first_seen TEXT NOT NULL,
+                    latest_seen TEXT NOT NULL,
+                    window_minutes INTEGER NOT NULL,
+                    number_of_channels INTEGER NOT NULL DEFAULT 0,
+                    agreeing_channels_json TEXT NOT NULL DEFAULT '[]',
+                    disagreeing_channels_json TEXT NOT NULL DEFAULT '[]',
+                    consensus_score REAL NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_consensus_groups_ticker ON consensus_groups(ticker, latest_seen);
                 CREATE TABLE IF NOT EXISTS watch_state (
                     source TEXT PRIMARY KEY,
                     last_message_id INTEGER NOT NULL DEFAULT 0,
@@ -194,6 +210,13 @@ class SignalStore:
             "confidence_level": "TEXT",
             "conviction_reasons_json": "TEXT",
             "conviction_warnings_json": "TEXT",
+            "consensus_group_id": "INTEGER",
+            "number_of_channels": "INTEGER",
+            "agreeing_channels_json": "TEXT",
+            "disagreeing_channels_json": "TEXT",
+            "consensus_score": "REAL",
+            "consensus_first_seen": "TEXT",
+            "consensus_latest_seen": "TEXT",
         }
         for name, definition in additions.items():
             if name not in columns:
@@ -226,23 +249,48 @@ class SignalStore:
         targets = parsed.get("targets") or []
         stop_loss = parsed.get("stop_loss")
         with self.connect() as db:
-            conviction = calculate_conviction(
-                db, signal.source, parsed, signal.sent_at, ticker, entry, targets, stop_loss
-            )
             cursor = db.execute(
                 """INSERT OR IGNORE INTO signals
                 (source,message_id,sent_at,received_at,ticker,pair,side,entry_json,
                  targets_json,stop_loss,parsed_json,raw_text,dedupe_key,source_url,
-                 conviction_score,confidence_level,conviction_reasons_json,conviction_warnings_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 conviction_score,confidence_level,conviction_reasons_json,conviction_warnings_json,
+                 number_of_channels,agreeing_channels_json,disagreeing_channels_json,
+                 consensus_score,consensus_first_seen,consensus_latest_seen)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (signal.source, signal.message_id, signal.sent_at, utc_now(), ticker,
                  pair, parsed.get("side"), json.dumps(entry), json.dumps(targets),
                  stop_loss, json.dumps(parsed, ensure_ascii=False, sort_keys=True),
-                 signal.raw_text, signal.dedupe_key, signal.url, conviction["conviction_score"],
-                 conviction["confidence_level"], json.dumps(conviction["reasons"], ensure_ascii=False),
-                 json.dumps(conviction["warnings"], ensure_ascii=False)),
+                 signal.raw_text, signal.dedupe_key, signal.url, None, None, None, None,
+                 None, None, None, None, None, None),
             )
-            return cursor.rowcount == 1
+            if cursor.rowcount != 1:
+                return False
+            signal_id = int(cursor.lastrowid)
+            consensus = update_consensus_group(
+                db, signal_id, ticker, signal.sent_at, parsed.get("side"), signal.source,
+                self.consensus_window_minutes,
+            )
+            rows = db.execute(
+                "SELECT * FROM signals WHERE consensus_group_id=? ORDER BY id",
+                (consensus["group_id"],),
+            ).fetchall()
+            for row in rows:
+                row_parsed = json.loads(row["parsed_json"] or "{}")
+                row_entry = json.loads(row["entry_json"]) if row["entry_json"] else None
+                row_targets = json.loads(row["targets_json"] or "[]")
+                row_consensus = consensus_for_signal(db, row, self.consensus_window_minutes)
+                row_conviction = calculate_conviction(
+                    db, row["source"], row_parsed, row["sent_at"], row["ticker"],
+                    row_entry, row_targets, row["stop_loss"], consensus=row_consensus,
+                )
+                db.execute(
+                    """UPDATE signals SET conviction_score=?, confidence_level=?,
+                    conviction_reasons_json=?, conviction_warnings_json=? WHERE id=?""",
+                    (row_conviction["conviction_score"], row_conviction["confidence_level"],
+                     json.dumps(row_conviction["reasons"], ensure_ascii=False),
+                     json.dumps(row_conviction["warnings"], ensure_ascii=False), row["id"]),
+                )
+            return True
 
     def pending(self, limit: int = 50) -> list[sqlite3.Row]:
         with self.connect() as db:
@@ -363,6 +411,171 @@ def _historical_channel_stats(db: sqlite3.Connection, source: str) -> dict[str, 
     }
 
 
+def _iso_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _consensus_result(
+    group_id: int,
+    ticker: str | None,
+    members: list[sqlite3.Row],
+    anchor_side: Any,
+    window_minutes: int,
+) -> dict[str, Any]:
+    timestamps = [_timestamp(row["sent_at"]) for row in members]
+    timestamps = [value for value in timestamps if value is not None]
+    first_seen = _iso_timestamp(min(timestamps)) if timestamps else None
+    latest_seen = _iso_timestamp(max(timestamps)) if timestamps else None
+    agreeing: set[str] = set()
+    disagreeing: set[str] = set()
+    direction = _direction(anchor_side)
+    channels: set[str] = set()
+    for row in members:
+        source = str(row["source"] or "Unknown")
+        channels.add(source)
+        other_direction = _direction(row["side"])
+        if direction and other_direction == direction:
+            agreeing.add(source)
+        elif direction and other_direction and other_direction != direction:
+            disagreeing.add(source)
+    known_channels = agreeing | disagreeing
+    if not ticker or not direction or not known_channels:
+        score = 0.0
+    elif len(known_channels) == 1:
+        score = 50.0
+    else:
+        score = round(len(agreeing) / len(known_channels) * 100, 2)
+    return {
+        "group_id": group_id,
+        "number_of_channels": len(channels),
+        "agreeing_channels": sorted(agreeing),
+        "disagreeing_channels": sorted(disagreeing),
+        "consensus_score": score,
+        "first_seen": first_seen,
+        "latest_seen": latest_seen,
+        "window_minutes": window_minutes,
+    }
+
+
+def consensus_for_values(
+    db: sqlite3.Connection,
+    ticker: str | None,
+    sent_at: str,
+    side: Any,
+    window_minutes: int,
+) -> dict[str, Any]:
+    anchor = _timestamp(sent_at)
+    if not ticker or anchor is None:
+        return _consensus_result(0, ticker, [], side, window_minutes)
+    rows = db.execute("SELECT * FROM signals WHERE ticker=? ORDER BY sent_at, id", (ticker,)).fetchall()
+    members = []
+    for row in rows:
+        timestamp = _timestamp(row["sent_at"])
+        if timestamp is not None and abs((anchor - timestamp).total_seconds()) <= window_minutes * 60:
+            members.append(row)
+    return _consensus_result(0, ticker, members, side, window_minutes)
+
+
+def update_consensus_group(
+    db: sqlite3.Connection,
+    signal_id: int,
+    ticker: str | None,
+    sent_at: str,
+    side: Any,
+    source: str,
+    window_minutes: int,
+) -> dict[str, Any]:
+    """Assign a signal to a time-bounded ticker group and refresh its members."""
+    anchor = _timestamp(sent_at)
+    candidate_ids: set[int] = set()
+    rows = []
+    if ticker and anchor is not None:
+        rows = db.execute(
+            "SELECT * FROM signals WHERE ticker=? ORDER BY sent_at, id", (ticker,)
+        ).fetchall()
+        for row in rows:
+            timestamp = _timestamp(row["sent_at"])
+            if timestamp is not None and abs((anchor - timestamp).total_seconds()) <= window_minutes * 60:
+                if row["consensus_group_id"] is not None:
+                    candidate_ids.add(int(row["consensus_group_id"]))
+        if candidate_ids:
+            group_id = min(candidate_ids)
+            placeholders = ",".join("?" for _ in candidate_ids)
+            db.execute(
+                f"UPDATE signals SET consensus_group_id=? WHERE consensus_group_id IN ({placeholders})",
+                (group_id, *candidate_ids),
+            )
+        else:
+            cursor = db.execute(
+                "INSERT INTO consensus_groups(ticker,first_seen,latest_seen,window_minutes) VALUES(?,?,?,?)",
+                (ticker, sent_at, sent_at, window_minutes),
+            )
+            group_id = int(cursor.lastrowid)
+            for row in rows:
+                timestamp = _timestamp(row["sent_at"])
+                if timestamp is not None and abs((anchor - timestamp).total_seconds()) <= window_minutes * 60:
+                    db.execute("UPDATE signals SET consensus_group_id=? WHERE id=?", (group_id, row["id"]))
+        db.execute("UPDATE signals SET consensus_group_id=? WHERE id=?", (group_id, signal_id))
+        members = db.execute(
+            "SELECT * FROM signals WHERE consensus_group_id=? ORDER BY sent_at, id", (group_id,)
+        ).fetchall()
+    else:
+        cursor = db.execute(
+            "INSERT INTO consensus_groups(ticker,first_seen,latest_seen,window_minutes) VALUES(?,?,?,?)",
+            (ticker, sent_at, sent_at, window_minutes),
+        )
+        group_id = int(cursor.lastrowid)
+        db.execute("UPDATE signals SET consensus_group_id=? WHERE id=?", (group_id, signal_id))
+        members = db.execute("SELECT * FROM signals WHERE id=?", (signal_id,)).fetchall()
+    result = _consensus_result(group_id, ticker, members, side, window_minutes)
+    db.execute(
+        """UPDATE consensus_groups SET ticker=?,first_seen=?,latest_seen=?,window_minutes=?,
+        number_of_channels=?,agreeing_channels_json=?,disagreeing_channels_json=?,consensus_score=?
+        WHERE id=?""",
+        (ticker, result["first_seen"] or sent_at, result["latest_seen"] or sent_at, window_minutes,
+         result["number_of_channels"], json.dumps(result["agreeing_channels"]),
+         json.dumps(result["disagreeing_channels"]), result["consensus_score"], group_id),
+    )
+    for member in members:
+        member_result = _consensus_result(
+            group_id, ticker, members, member["side"], window_minutes
+        )
+        db.execute(
+            """UPDATE signals SET number_of_channels=?,agreeing_channels_json=?,
+            disagreeing_channels_json=?,consensus_score=?,consensus_first_seen=?,consensus_latest_seen=?
+            WHERE id=?""",
+            (member_result["number_of_channels"], json.dumps(member_result["agreeing_channels"]),
+             json.dumps(member_result["disagreeing_channels"]), member_result["consensus_score"],
+             member_result["first_seen"], member_result["latest_seen"], member["id"]),
+        )
+    return result
+
+
+def consensus_for_signal(db: sqlite3.Connection, row: sqlite3.Row, window_minutes: int) -> dict[str, Any]:
+    fresh = db.execute(
+        """SELECT consensus_group_id,number_of_channels,agreeing_channels_json,
+        disagreeing_channels_json,consensus_score,consensus_first_seen,consensus_latest_seen
+        FROM signals WHERE id=?""", (row["id"],)
+    ).fetchone()
+    if fresh and fresh["consensus_group_id"] is not None:
+        return {
+            "group_id": fresh["consensus_group_id"],
+            "number_of_channels": fresh["number_of_channels"] or 0,
+            "agreeing_channels": json.loads(fresh["agreeing_channels_json"] or "[]"),
+            "disagreeing_channels": json.loads(fresh["disagreeing_channels_json"] or "[]"),
+            "consensus_score": fresh["consensus_score"] or 0.0,
+            "first_seen": fresh["consensus_first_seen"],
+            "latest_seen": fresh["consensus_latest_seen"],
+            "window_minutes": window_minutes,
+        }
+    return {
+        "group_id": None, "number_of_channels": 0, "agreeing_channels": [],
+        "disagreeing_channels": [], "consensus_score": 0.0,
+        "first_seen": row["sent_at"], "latest_seen": row["sent_at"],
+        "window_minutes": window_minutes,
+    }
+
+
 def calculate_conviction(
     db: sqlite3.Connection,
     source: str,
@@ -372,6 +585,8 @@ def calculate_conviction(
     entry: Any,
     targets: list[Any],
     stop_loss: Any,
+    *,
+    consensus: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score one signal using transparent, bounded factors totaling 100 points."""
     score = 0.0
@@ -453,42 +668,24 @@ def calculate_conviction(
     score += rr_score
     reasons.append(f"Risk/reward: {risk_reward:.2f} ({rr_score:.1f}/10)" if risk_reward is not None else "Risk/reward: unavailable (0/10)")
 
-    agreement_score = 5.0
-    agreement = 0
-    conflict = 0
-    sent = _timestamp(sent_at)
-    if ticker and sent is not None:
-        exists = db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='signals'"
-        ).fetchone()
-        if exists:
-            rows = db.execute(
-                "SELECT side, sent_at FROM signals WHERE ticker=? AND source!=?",
-                (ticker, source),
-            ).fetchall()
-            for row in rows:
-                other_time = _timestamp(row[1])
-                if other_time is None or abs((sent - other_time).total_seconds()) > 6 * 3600:
-                    continue
-                if _direction(row[0]) == direction:
-                    agreement += 1
-                elif _direction(row[0]) and direction:
-                    conflict += 1
-            if agreement >= 2:
-                agreement_score = 10.0
-            elif agreement == 1:
-                agreement_score = 8.0
-            if conflict:
-                agreement_score = max(0.0, agreement_score - min(5.0, conflict * 2))
-                warnings.append(f"Conflicting direction from {conflict} recent channel(s)")
-    if agreement:
-        reasons.append(f"Duplicate agreement: {agreement} recent matching signal(s) ({agreement_score:.1f}/10)")
-    else:
-        reasons.append(f"Duplicate agreement: no recent matching signal ({agreement_score:.1f}/10)")
-    score += agreement_score
+    consensus = consensus or consensus_for_values(
+        db, ticker, sent_at, parsed.get("side"), DEFAULT_CONSENSUS_WINDOW_MINUTES
+    )
+    consensus_points = float(consensus.get("consensus_score") or 0.0) / 10
+    agreeing = consensus.get("agreeing_channels") or []
+    disagreeing = consensus.get("disagreeing_channels") or []
+    if disagreeing:
+        warnings.append("Consensus has opposing channel direction")
+    score += consensus_points
+    reasons.append(
+        f"Consensus: {float(consensus.get('consensus_score') or 0.0):.1f}/100 "
+        f"({consensus_points:.1f}/10 points), {int(consensus.get('number_of_channels') or 0)} channel(s), "
+        f"{len(agreeing)} agreeing, {len(disagreeing)} disagreeing"
+    )
 
     freshness_score = 0.0
     age_hours = None
+    sent = _timestamp(sent_at)
     if sent is not None:
         age_hours = (datetime.now(timezone.utc) - sent).total_seconds() / 3600
         timeout = float(source_policy(source)["timeout_hours"])
@@ -656,6 +853,9 @@ def format_alert(row: sqlite3.Row) -> str:
         f"Stop loss: {row['stop_loss'] if row['stop_loss'] is not None else 'MISSING'}",
         "Review: " + (" | ".join(warnings) if warnings else "no parser warnings"),
         f"Conviction: {row['conviction_score']:.1f}/100 · {row['confidence_level']}" if row['conviction_score'] is not None else "Conviction: unavailable",
+        f"Consensus: {row['consensus_score']:.1f}/100 · {row['number_of_channels'] or 0} channel(s) · "
+        f"agreeing {len(json.loads(row['agreeing_channels_json'] or '[]'))} · "
+        f"disagreeing {len(json.loads(row['disagreeing_channels_json'] or '[]'))}",
         *trade_plan_lines(row["source"], parsed),
         "Status: information only · no order placed",
     ]
@@ -665,6 +865,8 @@ def format_alert(row: sqlite3.Row) -> str:
         conviction_warnings = json.loads(row["conviction_warnings_json"])
         if conviction_warnings:
             lines.append("Conviction warnings: " + " | ".join(conviction_warnings))
+    if row["consensus_first_seen"] and row["consensus_latest_seen"]:
+        lines.append(f"Consensus window: {row['consensus_first_seen']} → {row['consensus_latest_seen']}")
     if row["source_url"]:
         lines.append(f"Source message: {row['source_url']}")
     if row["raw_text"]:
@@ -784,7 +986,7 @@ async def run_watch(args: argparse.Namespace) -> int:
     session_dir = args.session_dir or root / "supervizor_sessions"
     session_dir.mkdir(parents=True, exist_ok=True)
     parse_fn = load_parser(root)
-    store = SignalStore(args.db)
+    store = SignalStore(args.db, args.consensus_window_minutes)
     client = TelegramClient(
         str(session_dir / env["TELEGRAM_SESSION_NAME"]),
         int(env["TELEGRAM_API_ID"]),
@@ -862,6 +1064,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chat", action="append", help="Telegram channel/group title, username, or link. Repeat for each.")
     parser.add_argument("--dialog-limit", type=int, default=100)
     parser.add_argument("--backfill", type=int, default=0, help="Import up to N most recent messages per channel before live listening.")
+    parser.add_argument("--consensus-window-minutes", type=int, default=DEFAULT_CONSENSUS_WINDOW_MINUTES,
+                        help="Group same-ticker signals across channels within this many minutes.")
     parser.add_argument("--dry-run", action="store_true", help="Print alerts locally; never send them.")
     parser.add_argument("--once", action="store_true", help="Backfill and exit; useful for testing.")
     parser.add_argument("--test-alert", action="store_true", help="Send one clearly labeled Telegram delivery test and exit.")
@@ -881,6 +1085,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 2
     if args.backfill < 0 or args.backfill > 10000:
         parser.error("--backfill must be between 0 and 10000")
+    if args.consensus_window_minutes <= 0 or args.consensus_window_minutes > 7 * 24 * 60:
+        parser.error("--consensus-window-minutes must be between 1 and 10080")
     try:
         if args.env is None and not (args.supervizor_root / ".env.telegram").is_file():
             raise FileNotFoundError("Supervizor .env.telegram not found; pass --env or --supervizor-root.")
