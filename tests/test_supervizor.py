@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, score_with_price_path_preview, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -101,6 +101,21 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertFalse(preview["write_performed"])
         unchanged = json.loads(scoreboard.read_text(encoding="utf-8"))
         self.assertEqual(unchanged["result_status"], "unscored")
+
+
+    def test_live_trading_focus_uses_scoreboard_counts(self):
+        scoreboard = Path(self.temp.name) / "scoreboard.jsonl"
+        records = [
+            {"pair": "JTO/USDT", "side": "short", "source": "Test", "result_status": "stop_loss_hit", "reject_reasons": ["leverage"]},
+            {"pair": "DOT/USDT", "side": "buy", "source": "Test", "result_status": "unscored", "reject_reasons": ["missing"]},
+        ]
+        scoreboard.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+        focus = live_trading_focus(scoreboard)
+        rendered = render_live_trading_focus(focus)
+        self.assertEqual(focus["resolved_count"], 1)
+        self.assertEqual(focus["unresolved_count"], 1)
+        self.assertEqual(focus["outcomes"], {"stop_loss_hit": 1})
+        self.assertIn("LIVE PAPER TRADING FOCUS", rendered)
 
 
 if __name__ == "__main__":

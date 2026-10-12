@@ -313,3 +313,52 @@ def render_price_path_preview(preview: dict[str, Any]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+
+def live_trading_focus(scoreboard_path: str | Path | None = None) -> dict[str, Any]:
+    queue = evidence_review_queue(scoreboard_path)
+    records = read_signal_scoreboard(scoreboard_path)
+    resolved = [record for record in records if record.get("result_status") not in {None, "", "unscored"}]
+    outcomes = {}
+    for record in resolved:
+        status = str(record.get("result_status") or "unknown")
+        outcomes[status] = outcomes.get(status, 0) + 1
+    blockers = []
+    if queue["unresolved_count"]:
+        blockers.append(f"{queue['unresolved_count']} unresolved signal(s) remain.")
+    if not resolved:
+        blockers.append("No resolved signal outcomes yet.")
+    rejected = sum(1 for record in records if record.get("reject_reasons"))
+    if rejected:
+        blockers.append(f"{rejected} signal(s) include rejection reasons; do not treat them as executable ideas.")
+    return {
+        "mode": "paper_only_watch_only",
+        "total_records": len(records),
+        "resolved_count": len(resolved),
+        "unresolved_count": queue["unresolved_count"],
+        "outcomes": outcomes,
+        "blockers": blockers or ["None for paper-only review."],
+        "next_action": "Resolve the next unscored signal with local evidence only." if queue["unresolved_count"] else "Build or review the method backtest queue.",
+        "execution_allowed": False,
+        "trading_allowed": False,
+    }
+
+
+def render_live_trading_focus(report: dict[str, Any]) -> str:
+    lines = [
+        "LIVE PAPER TRADING FOCUS",
+        "",
+        f"Mode: {report['mode']}",
+        f"Total records: {report['total_records']}",
+        f"Resolved records: {report['resolved_count']}",
+        f"Unresolved records: {report['unresolved_count']}",
+        f"Outcomes: {report['outcomes']}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "BLOCKERS",
+    ]
+    lines.extend(f"- {item}" for item in report["blockers"])
+    lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)

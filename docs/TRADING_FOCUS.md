@@ -53,3 +53,19 @@ python3 -m ai_os trading-outcome-preview --record-index 3 --prices ~/Desktop/ai-
 ```
 
 JTO record #3 previewed as `stop_loss_hit` from the local price path. The local Supervizor scorer then updated the scoreboard with `execution_allowed: false` and no broker/account calls.
+
+## Live Scoreboard Focus
+
+Use the current local scoreboard instead of the older operator snapshot:
+
+```bash
+python3 -m ai_os trading-live-focus
+```
+
+Current live scoreboard state:
+
+- Total records: 5
+- Resolved records: 2
+- Unresolved records: 3
+- Outcomes: `stop_loss_hit: 2`
+- Execution/trading remain disabled.
