@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, method_readiness, render_method_readiness, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, method_readiness, method_promotion_review, render_method_promotion_review, render_method_readiness, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -129,6 +129,24 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertEqual(report["outcome_count"], 0)
         self.assertIn("Method inventory is too small", "\n".join(report["blockers"]))
         self.assertIn("METHOD READINESS", rendered)
+
+
+    def test_method_promotion_review_surfaces_candidates_without_execution(self):
+        vault = Path(self.temp.name) / "vault.jsonl"
+        outcomes = Path(self.temp.name) / "outcomes.jsonl"
+        method = {"id": "m1", "status": "untested", "source_type": "personal_method", "title": "Risk Gate"}
+        vault.write_text(json.dumps(method), encoding="utf-8")
+        records = [
+            {"method_id": "m1", "outcome": "helped"},
+            {"method_id": "m1", "outcome": "helped"},
+            {"method_id": "m1", "outcome": "helped"},
+        ]
+        outcomes.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+        report = method_promotion_review(vault, outcomes)
+        rendered = render_method_promotion_review(report)
+        self.assertFalse(report["execution_allowed"])
+        self.assertEqual(report["methods"][0]["recommendation"], "candidate_for_validation")
+        self.assertIn("promotion requires human decision", rendered)
 
 
 if __name__ == "__main__":

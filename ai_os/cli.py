@@ -19,7 +19,13 @@ from ai_os.scheduler import (
     install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
 )
 from ai_os.store import AIOS
-from ai_os.supervizor import evidence_review_queue, live_trading_focus, method_readiness, read_supervizor_snapshot, render_evidence_review_queue, render_live_trading_focus, render_method_readiness, render_price_path_preview, render_trading_focus, score_with_price_path_preview, trading_focus
+from ai_os.supervizor import (
+    evidence_review_queue, live_trading_focus, method_promotion_review,
+    method_readiness, read_supervizor_snapshot, render_evidence_review_queue,
+    render_live_trading_focus, render_method_promotion_review,
+    render_method_readiness, render_price_path_preview, render_trading_focus,
+    score_with_price_path_preview, trading_focus,
+)
 from ai_os.workers import assign_next, render_assignment
 
 
@@ -65,6 +71,9 @@ def parser() -> argparse.ArgumentParser:
     proof.add_argument("--source", default="Rico GTA footage")
     commands.add_parser("proposals", help="List pending model proposals for review")
     commands.add_parser("provider-status", help="Check local model configuration and Ollama availability")
+    promotions = commands.add_parser("trading-promotions", help="Show paper-only method promotion review")
+    promotions.add_argument("--vault")
+    promotions.add_argument("--outcomes")
     methods = commands.add_parser("trading-methods", help="Show paper-only method inventory readiness")
     methods.add_argument("--vault")
     methods.add_argument("--outcomes")
@@ -171,8 +180,10 @@ def main(argv: list[str] | None = None) -> int:
             _print(pending_model_proposals(store))
         elif args.command == "provider-status":
             _print(OpenAICompatibleProvider().status())
+        elif args.command == "trading-promotions":
+            print(render_method_promotion_review(method_promotion_review(args.vault, args.outcomes)))
         elif args.command == "trading-methods":
-            print(render_method_readiness(method_readiness(args.vault, args.outcomes)))
+            print(render_method_promotion_review, render_method_promotion_review, method_readiness(method_promotion_review, method_readiness(args.vault, args.outcomes)))
         elif args.command == "trading-live-focus":
             print(render_live_trading_focus(live_trading_focus(args.scoreboard)))
         elif args.command == "trading-evidence":

@@ -443,3 +443,66 @@ def render_method_readiness(report: dict[str, Any]) -> str:
     lines.extend(f"- {item}" for item in report["blockers"])
     lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
     return "\n".join(lines)
+
+
+
+def method_promotion_review(vault_path: str | Path | None = None,
+                            outcomes_path: str | Path | None = None) -> dict[str, Any]:
+    methods = read_jsonl_records(vault_path or DEFAULT_KNOWLEDGE_VAULT)
+    outcomes = read_jsonl_records(outcomes_path or DEFAULT_METHOD_OUTCOMES)
+    rows = []
+    for method in methods:
+        method_id = str(method.get("id") or "")
+        relevant = [outcome for outcome in outcomes if outcome.get("method_id") == method_id]
+        helped = sum(1 for outcome in relevant if outcome.get("outcome") == "helped")
+        failed = sum(1 for outcome in relevant if outcome.get("outcome") == "failed")
+        resolved = helped + failed
+        helped_rate = None if resolved == 0 else helped / resolved
+        if resolved >= 3 and helped_rate is not None and helped_rate >= 0.67:
+            recommendation = "candidate_for_validation"
+        elif resolved >= 3 and helped_rate is not None and helped_rate <= 0.34:
+            recommendation = "candidate_for_rejection"
+        elif relevant:
+            recommendation = "not_enough_data"
+        else:
+            recommendation = "candidate_for_testing"
+        rows.append({
+            "method_id": method_id,
+            "title": method.get("title") or "untitled",
+            "status": method.get("status") or "unknown",
+            "resolved_outcomes": resolved,
+            "helped": helped,
+            "failed": failed,
+            "helped_rate": helped_rate,
+            "recommendation": recommendation,
+            "execution_allowed": False,
+        })
+    rows.sort(key=lambda row: (row["recommendation"], row["title"]))
+    return {
+        "mode": "paper_only_watch_only",
+        "methods": rows,
+        "execution_allowed": False,
+        "trading_allowed": False,
+        "next_action": "Review candidate_for_validation methods; promotion requires human decision and does not enable trading.",
+    }
+
+
+def render_method_promotion_review(report: dict[str, Any]) -> str:
+    lines = [
+        "METHOD PROMOTION REVIEW",
+        "",
+        f"Mode: {report['mode']}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "METHODS",
+    ]
+    if not report["methods"]:
+        lines.append("- No methods found.")
+    for row in report["methods"]:
+        rate = "n/a" if row["helped_rate"] is None else f"{row['helped_rate']:.2f}"
+        lines.append(
+            f"- {row['title']} | status={row['status']} | resolved={row['resolved_outcomes']} | helped_rate={rate} | recommendation={row['recommendation']}"
+        )
+    lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)

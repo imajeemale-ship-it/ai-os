@@ -125,3 +125,19 @@ Paper-only review completed locally:
 - Execution/trading remain disabled.
 
 Next decision: review promotion recommendations and decide whether any method should move from `untested` to `testing`. No automatic promotion is performed.
+
+## Promotion Review
+
+Show paper-only method promotion recommendations:
+
+```bash
+python3 -m ai_os trading-promotions
+```
+
+Current recommendations:
+
+- Rejected Leverage Signal Filter: candidate_for_validation
+- Spot Long Risk-Complete Signal Template: candidate_for_validation
+- Fibonacci Confluence Placeholder: candidate_for_testing
+
+Promotion requires human decision and does not enable trading.
