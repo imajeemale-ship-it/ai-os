@@ -13,6 +13,7 @@ Date: 2026-10-06
 - The paper trader wakes every 5 minutes through `com.ai-os.signal-watch-paper-trader`.
 - It simulates entries from ranked sources with parsed entries and targets.
 - It tracks TP1, TP2, TP3, TP4, stop loss, remaining position, and paper P/L.
+- It exports sortable JSON and Markdown channel performance reports.
 - It does not connect to a broker and does not place real orders.
 
 ## Current channel read
@@ -37,6 +38,9 @@ By Saturday, review paper results by channel:
 
 Only move toward tiny live Coinbase Advanced API execution if the paper data shows repeatable edge.
 
-## Next possible build step
+## Report command
 
-Add a report command that summarizes the paper-trading database by channel and exports the Saturday verdict table.
+Run `python3 apps/signal-watch/scripts/report_paper_trading.py` to export the
+channel ranking from the Signal Watch database. It includes total signals,
+wins, losses, win rate, average return, average hold time, realized net paper
+P/L, profit factor, maximum drawdown, and last signal date.

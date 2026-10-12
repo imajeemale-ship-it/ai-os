@@ -114,3 +114,16 @@ apps/signal-watch/scripts/status-paper-trader-agent.sh
 ```
 
 The job wakes every 5 minutes through `com.ai-os.signal-watch-paper-trader`, runs once, writes logs to `~/.ai-os/logs/signal-watch-paper.out.log`, then exits. A `last exit code = 0` means the latest run completed cleanly.
+
+Export the channel performance report from the same database:
+
+```sh
+cd /Users/unagidon/Documents/ai-os
+python3 apps/signal-watch/scripts/report_paper_trading.py
+```
+
+This writes `~/.ai-os/reports/paper-trading-channel-performance.json` and
+`~/.ai-os/reports/paper-trading-channel-performance.md`. Rows are ranked by
+realized net paper P/L by default; use `--sort-by` with a report metric and
+`--ascending` for a different sortable view. The report is read-only and does
+not wake the paper trader or contact Telegram, Coinbase, or a broker.
