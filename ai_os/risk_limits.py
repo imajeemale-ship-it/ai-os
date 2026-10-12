@@ -84,6 +84,48 @@ def validate_risk_limits(limits: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def risk_limits_next_questions(limits: dict[str, Any]) -> dict[str, Any]:
+    validation = validate_risk_limits(limits)
+    questions = {
+        "starting_capital_usd": "How much capital is approved for the first live test?",
+        "max_daily_loss_usd": "What dollar loss stops trading for the day?",
+        "max_weekly_loss_usd": "What dollar loss stops trading for the week?",
+        "max_position_size_usd": "What is the largest single position size?",
+        "max_open_positions": "How many positions can be open at once?",
+        "max_trades_per_day": "How many live trades are allowed per day?",
+        "cooldown_after_loss_minutes": "How long must the system wait after a losing trade?",
+        "kill_switch_trigger": "What exact condition shuts everything down immediately?",
+    }
+    next_fields = validation["missing"] + [field for field in validation["invalid"] if field not in validation["missing"]]
+    return {
+        "mode": "risk_limits_question_queue",
+        "passed": validation["passed"],
+        "next_fields": next_fields,
+        "questions": [{"field": field, "question": questions[field]} for field in next_fields],
+        "execution_allowed": False,
+        "trading_allowed": False,
+    }
+
+
+def render_risk_limits_questions(report: dict[str, Any]) -> str:
+    lines = [
+        "RISK LIMITS QUESTIONS",
+        "",
+        f"Mode: {report['mode']}",
+        f"Complete: {str(report['passed']).lower()}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "NEXT FIELDS",
+    ]
+    if not report["questions"]:
+        lines.append("- No missing fields.")
+    for row in report["questions"]:
+        lines.append(f"- {row['field']}: {row['question']}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_risk_limits_draft(report: dict[str, Any]) -> str:
     validation = validate_risk_limits(report["limits"])
     lines = [

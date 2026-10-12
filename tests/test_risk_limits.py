@@ -3,7 +3,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from ai_os.risk_limits import load_risk_limits, risk_limits_draft, render_risk_limits_draft, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
+from ai_os.risk_limits import load_risk_limits, risk_limits_draft, render_risk_limits_draft, render_risk_limits_questions, risk_limits_next_questions, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
 
 
 class RiskLimitsTests(unittest.TestCase):
@@ -29,6 +29,15 @@ class RiskLimitsTests(unittest.TestCase):
         result = validate_risk_limits(limits)
         self.assertTrue(result["passed"])
         self.assertFalse(result["execution_allowed"])
+
+
+    def test_risk_questions_surface_missing_fields(self):
+        limits = risk_limits_draft()["limits"]
+        report = risk_limits_next_questions(limits)
+        rendered = render_risk_limits_questions(report)
+        self.assertFalse(report["passed"])
+        self.assertIn("starting_capital_usd", rendered)
+        self.assertIn("kill_switch_trigger", rendered)
 
     def test_save_risk_limits_draft_creates_daily_markdown(self):
         with tempfile.TemporaryDirectory() as directory:
