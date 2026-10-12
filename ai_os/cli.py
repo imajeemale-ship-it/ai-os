@@ -15,6 +15,7 @@ from ai_os.planner import Planner
 from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_proposals
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
+from ai_os.risk_limits import render_risk_limits_draft, risk_limits_draft, save_risk_limits_draft
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
@@ -98,6 +99,8 @@ def parser() -> argparse.ArgumentParser:
     broker.add_argument("--file", help="JSON file with a tools list")
     policy = commands.add_parser("trading-policy-draft", help="Create or show a locked live-trading policy draft")
     policy.add_argument("--save", action="store_true")
+    risk = commands.add_parser("trading-risk-draft", help="Create or show locked live-trading risk limits draft")
+    risk.add_argument("--save", action="store_true")
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     real.add_argument("--broker-tools", help="JSON file with broker tools to classify")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
@@ -228,6 +231,11 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_live_policy_draft())})
             else:
                 print(render_live_policy_draft(live_policy_draft()))
+        elif args.command == "trading-risk-draft":
+            if args.save:
+                _print({"saved_to": str(save_risk_limits_draft())})
+            else:
+                print(render_risk_limits_draft(risk_limits_draft()))
         elif args.command == "trading-real-readiness":
             broker_tools = load_broker_tool_inventory(args.broker_tools) if args.broker_tools else None
             print(render_real_trading_readiness(real_trading_readiness(broker_tools)))

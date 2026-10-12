@@ -179,6 +179,18 @@ python3 -m ai_os trading-policy-draft --save
 
 The draft is not approval. It lists the decisions that must be filled before live trading can even be considered: account, capital, max loss, position size, allowed methods, kill switch, and KD final approval.
 
+
+## Risk Limits Draft
+
+Create the locked risk limits draft before any live execution work:
+
+```bash
+python3 -m ai_os trading-risk-draft
+python3 -m ai_os trading-risk-draft --save
+```
+
+The draft forces numeric limits before approval: starting capital, max daily loss, max weekly loss, max position size, max open positions, trades per day, cooldown, and kill switch.
+
 ## Real Trading Readiness Gate
 
 Show the locked path toward future real trading:
