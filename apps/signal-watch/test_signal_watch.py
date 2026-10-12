@@ -39,6 +39,22 @@ class SignalWatchTests(unittest.TestCase):
         return watch.Signal(source, message_id, sent_at, raw, parsed,
                             f"hash-{message_id}", "https://t.me/sample/101")
 
+    @staticmethod
+    def market_context():
+        return {
+            "available": True,
+            "as_of": "2026-10-06T12:00:00Z",
+            "btc_trend": "up",
+            "btc_above_ema200": True,
+            "btc_24h_change_pct": 4.0,
+            "market_volatility": "medium",
+            "market_volatility_pct": 3.0,
+            "fear_greed_index": 60,
+            "fear_greed_label": "Greed",
+            "trading_session": "London",
+            "day_of_week": "Tuesday",
+        }
+
     def test_persists_ticker_and_merges_repeated_signal(self):
         signal = self.make_signal()
         self.assertTrue(self.db.add(signal))
@@ -62,6 +78,37 @@ class SignalWatchTests(unittest.TestCase):
         self.assertIn("Conviction:", alert)
         self.assertIn("Conviction reasons:", alert)
         self.assertIn("Consensus:", alert)
+
+    def test_market_context_contributes_to_conviction_and_is_persisted(self):
+        store = watch.SignalStore(
+            Path(self.temp.name) / "market.db",
+            market_context_provider=self.market_context,
+        )
+        signal = self.make_signal(source="Wallstreet Queen Official®", sent_at=watch.utc_now())
+        self.assertTrue(store.add(signal))
+        row = store.pending()[0]
+        context = json.loads(row["market_context_json"])
+        self.assertTrue(context["available"])
+        self.assertGreater(context["market_context_score"], 75)
+        reasons = json.loads(row["conviction_reasons_json"])
+        self.assertTrue(any("Market context: BTC trend up" in reason for reason in reasons))
+        self.assertIn("Market context:", watch.format_alert(row))
+
+    def test_market_context_fails_closed_when_unavailable(self):
+        result = watch.score_market_context({"side": "buy"}, watch.unavailable_market_context("test outage"))
+        self.assertEqual(result["market_context_score"], 0.0)
+        self.assertIn("fail-closed", result["warnings"][0])
+
+    def test_market_context_uses_fresh_local_cache(self):
+        cache = Path(self.temp.name) / "market_context.json"
+        payload = self.market_context()
+        cache.write_text(json.dumps(payload), encoding="utf-8")
+        result = watch.fetch_market_context(
+            cache,
+            now=watch.datetime.fromisoformat("2026-10-06T12:04:00+00:00"),
+        )
+        self.assertTrue(result["available"])
+        self.assertEqual(result["cache_source"], "local_cache")
 
     def test_consensus_groups_agreeing_channels_within_configured_window(self):
         store = watch.SignalStore(Path(self.temp.name) / "consensus.db", consensus_window_minutes=120)
@@ -149,6 +196,26 @@ class SignalWatchTests(unittest.TestCase):
         with self.db.connect() as db:
             events = paper.open_candidates(db, dry_run=True)
         self.assertEqual(events, [])
+
+    def test_paper_pipeline_stores_market_context(self):
+        paper_spec = importlib.util.spec_from_file_location(
+            "paper_trade_signals_context_test", APP / "scripts" / "paper_trade_signals.py"
+        )
+        paper = importlib.util.module_from_spec(paper_spec)
+        assert paper_spec and paper_spec.loader
+        sys.modules[paper_spec.name] = paper
+        paper_spec.loader.exec_module(paper)
+        path = Path(self.temp.name) / "paper-context.db"
+        store = watch.SignalStore(path, market_context_provider=self.market_context)
+        with store.connect() as db:
+            paper.init_db(db)
+        signal = self.make_signal(source="Wallstreet Queen Official®", sent_at=watch.utc_now())
+        self.assertTrue(store.add(signal))
+        with store.connect() as db:
+            events = paper.open_candidates(db, dry_run=False)
+            position = db.execute("SELECT market_context_json FROM paper_positions").fetchone()
+        self.assertEqual(len(events), 1)
+        self.assertTrue(json.loads(position[0])["available"])
 
     def test_duplicate_text_merges_across_sources(self):
         first = self.make_signal(message_id=1, source="A")

@@ -11,9 +11,11 @@ import asyncio
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
+import statistics
 import ssl
 import sys
 import urllib.parse
@@ -38,6 +40,8 @@ DOLLAR_TICKER_RE = re.compile(r"\$([A-Z][A-Z0-9]{1,14})\b")
 BARE_TICKER_RE = re.compile(r"^\s*([A-Z][A-Z0-9]{1,14})(?:USDT|USD|USDC|BTC|ETH)?\s+(?:LONG|SHORT|BUY|SELL)\b", re.IGNORECASE)
 MAX_ALERT_CHARS = 3800
 DEFAULT_CONSENSUS_WINDOW_MINUTES = 360
+DEFAULT_MARKET_CONTEXT_CACHE = Path.home() / ".ai-os" / "market_context.json"
+MARKET_CONTEXT_CACHE_TTL_SECONDS = 300
 
 SOURCE_POLICIES = {
     "wallstreet queen official": {
@@ -97,6 +101,156 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def unavailable_market_context(reason: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "reason": reason,
+        "as_of": utc_now(),
+        "btc_trend": None,
+        "btc_above_ema200": None,
+        "btc_24h_change_pct": None,
+        "market_volatility": None,
+        "market_volatility_pct": None,
+        "fear_greed_index": None,
+        "fear_greed_label": None,
+        "trading_session": None,
+        "day_of_week": None,
+    }
+
+
+def _market_json(url: str) -> Any:
+    request = urllib.request.Request(url, headers={"User-Agent": "AI-OS Signal Watch market context"})
+    with urllib.request.urlopen(request, timeout=8, context=ssl.create_default_context()) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _ema(values: list[float], period: int) -> float:
+    multiplier = 2 / (period + 1)
+    result = values[0]
+    for value in values[1:]:
+        result = (value - result) * multiplier + result
+    return result
+
+
+def _trading_session(timestamp: datetime) -> str:
+    hour = timestamp.astimezone(timezone.utc).hour
+    if 8 <= hour < 13:
+        return "London"
+    if 13 <= hour < 21:
+        return "New York"
+    return "Asia"
+
+
+def fetch_market_context(
+    cache_path: Path = DEFAULT_MARKET_CONTEXT_CACHE,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Fetch and cache all required market inputs, failing closed on any gap."""
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    cache_path = Path(cache_path).expanduser()
+    try:
+        if cache_path.is_file():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            cached_at = _timestamp(cached.get("as_of")) if isinstance(cached, dict) else None
+            if cached.get("available") is True and cached_at and (reference - cached_at).total_seconds() <= MARKET_CONTEXT_CACHE_TTL_SECONDS:
+                cached["cache_source"] = "local_cache"
+                return cached
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        pass
+    try:
+        candles = _market_json("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600")
+        closes = sorted((float(row[0]), float(row[4])) for row in candles if len(row) >= 5)
+        prices = [value for _, value in closes]
+        if len(prices) < 201:
+            return unavailable_market_context("insufficient BTC candle history")
+        current = prices[-1]
+        ema200 = _ema(prices[-201:], 200)
+        change_24h = (current / prices[-25] - 1) * 100
+        hourly_changes = [(prices[index] / prices[index - 1] - 1) * 100 for index in range(max(1, len(prices) - 24), len(prices))]
+        volatility_pct = statistics.pstdev(hourly_changes) * math.sqrt(24) if hourly_changes else None
+        if volatility_pct is None:
+            return unavailable_market_context("BTC volatility unavailable")
+        volatility = "low" if volatility_pct < 2 else "high" if volatility_pct >= 5 else "medium"
+        fear_greed = _market_json("https://api.alternative.me/fng/?limit=1")
+        item = fear_greed.get("data", [])[0]
+        fear_greed_index = int(item["value"])
+        timestamp = reference.astimezone(timezone.utc)
+        context = {
+            "available": True,
+            "as_of": _iso_timestamp(timestamp),
+            "cache_source": "live",
+            "btc_trend": "up" if current > _ema(prices[-25:], 24) and change_24h > 0 else "down" if current < _ema(prices[-25:], 24) and change_24h < 0 else "sideways",
+            "btc_price": round(current, 8),
+            "btc_ema200": round(ema200, 8),
+            "btc_above_ema200": current >= ema200,
+            "btc_24h_change_pct": round(change_24h, 4),
+            "market_volatility": volatility,
+            "market_volatility_pct": round(volatility_pct, 4),
+            "fear_greed_index": fear_greed_index,
+            "fear_greed_label": str(item.get("value_classification") or "Unknown"),
+            "trading_session": _trading_session(timestamp),
+            "day_of_week": timestamp.strftime("%A"),
+        }
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return context
+    except (OSError, TypeError, ValueError, KeyError, IndexError, json.JSONDecodeError):
+        return unavailable_market_context("market data unavailable")
+
+
+def score_market_context(parsed: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Score market conditions for this signal; unavailable context scores zero."""
+    if not context.get("available"):
+        return {"market_context_score": 0.0, "reasons": [], "warnings": [
+            f"Market context unavailable; conviction fail-closed ({context.get('reason', 'unknown reason')})"
+        ]}
+    direction = _direction(parsed.get("side"))
+    points = 0.0
+    reasons: list[str] = []
+    warnings: list[str] = []
+    trend = context["btc_trend"]
+    if direction:
+        aligned = (direction == "long" and trend == "up") or (direction == "short" and trend == "down")
+        trend_points = 25.0 if aligned else 8.0 if trend == "sideways" else 0.0
+    else:
+        trend_points = 12.5
+        warnings.append("Market trend cannot be directional without a valid signal side")
+    points += trend_points
+    reasons.append(f"BTC trend {trend}: {trend_points:.1f}/25")
+    above = bool(context["btc_above_ema200"])
+    ema_aligned = (direction == "long" and above) or (direction == "short" and not above)
+    ema_points = 15.0 if direction and ema_aligned else 7.5 if not direction else 0.0
+    points += ema_points
+    reasons.append(f"BTC {'above' if above else 'below'} 200 EMA: {ema_points:.1f}/15")
+    change = float(context["btc_24h_change_pct"])
+    if direction == "short":
+        change_points = max(0.0, min(15.0, 7.5 - change * 1.5))
+    elif direction == "long":
+        change_points = max(0.0, min(15.0, 7.5 + change * 1.5))
+    else:
+        change_points = 7.5
+    points += change_points
+    reasons.append(f"BTC 24h change {change:+.2f}%: {change_points:.1f}/15")
+    volatility = context["market_volatility"]
+    volatility_points = {"low": 12.0, "medium": 10.0, "high": 3.0}.get(volatility, 0.0)
+    points += volatility_points
+    reasons.append(f"Market volatility {volatility}: {volatility_points:.1f}/15")
+    fear = int(context["fear_greed_index"])
+    fear_points = 15.0 - min(9.0, abs(fear - 50) / 50 * 9)
+    points += fear_points
+    reasons.append(f"Fear & Greed {fear} ({context['fear_greed_label']}): {fear_points:.1f}/15")
+    session_points = 10.0 if context["trading_session"] in {"London", "New York"} else 7.0
+    points += session_points
+    reasons.append(f"Trading session {context['trading_session']}: {session_points:.1f}/10")
+    day_points = 5.0 if context["day_of_week"] not in {"Saturday", "Sunday"} else 2.0
+    points += day_points
+    reasons.append(f"Day {context['day_of_week']}: {day_points:.1f}/5")
+    return {"market_context_score": round(max(0.0, min(100.0, points)), 2), "reasons": reasons, "warnings": warnings}
+
+
 def acquire_process_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("w", encoding="utf-8")
@@ -151,12 +305,14 @@ class Signal:
 
 
 class SignalStore:
-    def __init__(self, path: Path, consensus_window_minutes: int = DEFAULT_CONSENSUS_WINDOW_MINUTES):
+    def __init__(self, path: Path, consensus_window_minutes: int = DEFAULT_CONSENSUS_WINDOW_MINUTES,
+                 market_context_provider=None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         if consensus_window_minutes <= 0:
             raise ValueError("Consensus window must be positive")
         self.consensus_window_minutes = consensus_window_minutes
+        self.market_context_provider = market_context_provider
         with self.connect() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -217,6 +373,7 @@ class SignalStore:
             "consensus_score": "REAL",
             "consensus_first_seen": "TEXT",
             "consensus_latest_seen": "TEXT",
+            "market_context_json": "TEXT",
         }
         for name, definition in additions.items():
             if name not in columns:
@@ -249,19 +406,24 @@ class SignalStore:
         targets = parsed.get("targets") or []
         stop_loss = parsed.get("stop_loss")
         with self.connect() as db:
+            try:
+                market_context = self.market_context_provider() if self.market_context_provider else unavailable_market_context("market context provider not configured")
+            except Exception as error:
+                market_context = unavailable_market_context(f"market context provider failed: {error.__class__.__name__}")
             cursor = db.execute(
                 """INSERT OR IGNORE INTO signals
                 (source,message_id,sent_at,received_at,ticker,pair,side,entry_json,
                  targets_json,stop_loss,parsed_json,raw_text,dedupe_key,source_url,
                  conviction_score,confidence_level,conviction_reasons_json,conviction_warnings_json,
                  number_of_channels,agreeing_channels_json,disagreeing_channels_json,
-                 consensus_score,consensus_first_seen,consensus_latest_seen)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 consensus_score,consensus_first_seen,consensus_latest_seen,market_context_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (signal.source, signal.message_id, signal.sent_at, utc_now(), ticker,
                  pair, parsed.get("side"), json.dumps(entry), json.dumps(targets),
                  stop_loss, json.dumps(parsed, ensure_ascii=False, sort_keys=True),
                  signal.raw_text, signal.dedupe_key, signal.url, None, None, None, None,
-                 None, None, None, None, None, None),
+                 None, None, None, None, None, None,
+                 json.dumps(market_context, ensure_ascii=False)),
             )
             if cursor.rowcount != 1:
                 return False
@@ -279,16 +441,20 @@ class SignalStore:
                 row_entry = json.loads(row["entry_json"]) if row["entry_json"] else None
                 row_targets = json.loads(row["targets_json"] or "[]")
                 row_consensus = consensus_for_signal(db, row, self.consensus_window_minutes)
+                row_context = json.loads(row["market_context_json"] or "{}")
                 row_conviction = calculate_conviction(
                     db, row["source"], row_parsed, row["sent_at"], row["ticker"],
                     row_entry, row_targets, row["stop_loss"], consensus=row_consensus,
+                    market_context=row_context,
                 )
+                row_context["market_context_score"] = row_conviction["market_context_score"]
                 db.execute(
                     """UPDATE signals SET conviction_score=?, confidence_level=?,
-                    conviction_reasons_json=?, conviction_warnings_json=? WHERE id=?""",
+                    conviction_reasons_json=?, conviction_warnings_json=?,market_context_json=? WHERE id=?""",
                     (row_conviction["conviction_score"], row_conviction["confidence_level"],
                      json.dumps(row_conviction["reasons"], ensure_ascii=False),
-                     json.dumps(row_conviction["warnings"], ensure_ascii=False), row["id"]),
+                     json.dumps(row_conviction["warnings"], ensure_ascii=False),
+                     json.dumps(row_context, ensure_ascii=False), row["id"]),
                 )
             return True
 
@@ -587,6 +753,7 @@ def calculate_conviction(
     stop_loss: Any,
     *,
     consensus: dict[str, Any] | None = None,
+    market_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score one signal using transparent, bounded factors totaling 100 points."""
     score = 0.0
@@ -595,20 +762,20 @@ def calculate_conviction(
     history = _historical_channel_stats(db, source)
 
     if history["closed"]:
-        win_score = min(25.0, float(history["win_rate"]) / 100 * 25)
-        pf_score = min(20.0, float(history["profit_factor"]) / 2 * 20)
-        average_score = max(0.0, min(15.0, 7.5 + float(history["average_return"]) / 5 * 7.5))
+        win_score = min(20.0, float(history["win_rate"]) / 100 * 20)
+        pf_score = min(12.0, float(history["profit_factor"]) / 2 * 12)
+        average_score = max(0.0, min(13.0, 6.5 + float(history["average_return"]) / 5 * 6.5))
         historical_points = win_score + pf_score + average_score
         score += historical_points
         reasons.append(
             f"Channel history: {int(history['closed'])} closed trades, "
             f"{float(history['win_rate']):.1f}% win rate, PF {float(history['profit_factor']):.2f}, "
             f"average return {float(history['average_return']):+.2f}% "
-            f"({historical_points:.1f}/60 points)"
+            f"({historical_points:.1f}/45 points)"
         )
     else:
-        score += 12.5 + 10.0 + 7.5
-        reasons.append("Channel history has no closed paper trades; neutral historical prior applied (30/60 points)")
+        score += 10.0 + 6.0 + 6.5
+        reasons.append("Channel history has no closed paper trades; neutral historical prior applied (22.5/45 points)")
 
     entry_value = _entry_price(entry)
     stop_value = _number(stop_loss)
@@ -683,6 +850,13 @@ def calculate_conviction(
         f"{len(agreeing)} agreeing, {len(disagreeing)} disagreeing"
     )
 
+    context = market_context or unavailable_market_context("market context not supplied")
+    context_result = score_market_context(parsed, context)
+    context_points = float(context_result["market_context_score"]) * 0.15
+    score += context_points
+    reasons.extend(f"Market context: {reason}" for reason in context_result["reasons"])
+    warnings.extend(context_result["warnings"])
+
     freshness_score = 0.0
     age_hours = None
     sent = _timestamp(sent_at)
@@ -707,6 +881,7 @@ def calculate_conviction(
         "confidence_level": confidence,
         "reasons": reasons,
         "warnings": warnings,
+        "market_context_score": context_result["market_context_score"],
     }
 
 
@@ -827,6 +1002,7 @@ def paper_eligibility(
 
 def format_alert(row: sqlite3.Row) -> str:
     parsed = json.loads(row["parsed_json"])
+    market_context = json.loads(row["market_context_json"] or "{}")
     warnings = risk_flags(parsed, row["sent_at"])
     age = "unknown"
     try:
@@ -856,6 +1032,13 @@ def format_alert(row: sqlite3.Row) -> str:
         f"Consensus: {row['consensus_score']:.1f}/100 · {row['number_of_channels'] or 0} channel(s) · "
         f"agreeing {len(json.loads(row['agreeing_channels_json'] or '[]'))} · "
         f"disagreeing {len(json.loads(row['disagreeing_channels_json'] or '[]'))}",
+        f"Market context: {market_context.get('market_context_score', 0):.1f}/100 · "
+        f"BTC {market_context.get('btc_trend') or 'unavailable'} · "
+        f"24h {market_context.get('btc_24h_change_pct') if market_context.get('btc_24h_change_pct') is not None else 'N/A'}% · "
+        f"volatility {market_context.get('market_volatility') or 'unavailable'} · "
+        f"Fear & Greed {market_context.get('fear_greed_index') if market_context.get('fear_greed_index') is not None else 'N/A'} · "
+        f"session {market_context.get('trading_session') or 'unavailable'} · "
+        f"{market_context.get('day_of_week') or 'unknown'}",
         *trade_plan_lines(row["source"], parsed),
         "Status: information only · no order placed",
     ]
@@ -986,7 +1169,7 @@ async def run_watch(args: argparse.Namespace) -> int:
     session_dir = args.session_dir or root / "supervizor_sessions"
     session_dir.mkdir(parents=True, exist_ok=True)
     parse_fn = load_parser(root)
-    store = SignalStore(args.db, args.consensus_window_minutes)
+    store = SignalStore(args.db, args.consensus_window_minutes, fetch_market_context)
     client = TelegramClient(
         str(session_dir / env["TELEGRAM_SESSION_NAME"]),
         int(env["TELEGRAM_API_ID"]),

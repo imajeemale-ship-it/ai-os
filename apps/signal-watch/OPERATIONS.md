@@ -113,6 +113,14 @@ cross-channel confirmation, while multiple channels are scored by the share of
 agreeing versus disagreeing channel directions. Use
 `--consensus-window-minutes N` when starting Signal Watch to change the window.
 
+Market context is cached at `~/.ai-os/market_context.json` for five minutes. It
+uses public BTC candles, the Alternative.me Fear & Greed endpoint, UTC trading
+session, and UTC weekday. The context contributes 15 of 100 conviction points;
+historical channel performance contributes 45, completeness 15, risk/reward 10,
+consensus 10, and freshness 5. Missing or stale context is recorded as unavailable
+and fails closed: the signal remains visible for review but cannot become a paper
+position.
+
 Install or refresh the scheduled paper trader:
 
 ```sh

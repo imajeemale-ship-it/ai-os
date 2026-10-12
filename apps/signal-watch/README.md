@@ -22,6 +22,12 @@ Consensus groups same-ticker mentions across channels within a configurable wind
 disagreeing channel counts, and the group's first/latest timestamps. Override the
 window with `--consensus-window-minutes`.
 
+Live Signal Watch evaluations include a cached market context: BTC trend, BTC
+position versus its 200 EMA, 24-hour BTC change, volatility, Fear & Greed, trading
+session, and weekday. Market context contributes 15 conviction points and is saved
+with paper positions. If required context is unavailable, its score is zero and
+the paper lane refuses the trade.
+
 ## Requirements
 
 - Python 3.11+

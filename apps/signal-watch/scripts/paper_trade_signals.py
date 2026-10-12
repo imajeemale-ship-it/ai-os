@@ -101,7 +101,8 @@ def init_db(db: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             closed_at TEXT,
             realized_pnl_pct REAL NOT NULL DEFAULT 0,
-            note TEXT
+            note TEXT,
+            market_context_json TEXT
         );
         CREATE TABLE IF NOT EXISTS paper_events (
             id INTEGER PRIMARY KEY,
@@ -117,6 +118,9 @@ def init_db(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_paper_positions_status ON paper_positions(status, updated_at);
         """
     )
+    columns = {row[1] for row in db.execute("PRAGMA table_info(paper_positions)")}
+    if "market_context_json" not in columns:
+        db.execute("ALTER TABLE paper_positions ADD COLUMN market_context_json TEXT")
 
 
 def parse_entry(row: sqlite3.Row) -> float | None:
@@ -200,6 +204,13 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         )
         if not eligibility["eligible"]:
             continue
+        context_json = row["market_context_json"] if "market_context_json" in row.keys() else None
+        try:
+            market_context = json.loads(context_json or "{}")
+        except json.JSONDecodeError:
+            market_context = {}
+        if not market_context.get("available"):
+            continue
         conviction = row["conviction_score"] if "conviction_score" in row.keys() else None
         if conviction is None:
             conviction = watch.calculate_conviction(
@@ -215,10 +226,10 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         db.execute(
             """
             INSERT INTO paper_positions
-            (signal_id,source,ticker,side,entry_price,remaining_pct,stop_loss,targets_json,opened_at,updated_at,note)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            (signal_id,source,ticker,side,entry_price,remaining_pct,stop_loss,targets_json,opened_at,updated_at,note,market_context_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (row["id"], row["source"], row["ticker"], side, entry, 100.0, row["stop_loss"], json.dumps(targets), utc_now(), utc_now(), note),
+            (row["id"], row["source"], row["ticker"], side, entry, 100.0, row["stop_loss"], json.dumps(targets), utc_now(), utc_now(), note, json.dumps(market_context, ensure_ascii=False)),
         )
     return events
 
