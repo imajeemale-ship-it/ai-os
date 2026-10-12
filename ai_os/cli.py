@@ -15,8 +15,9 @@ from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.scheduler import (
-    daily_brief_status, daily_cycle_status, install_daily_brief,
-    install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
+    daily_brief_status, daily_cycle_status, daily_trading_operator_status,
+    install_daily_brief, install_daily_cycle, install_daily_trading_operator,
+    uninstall_daily_brief, uninstall_daily_cycle, uninstall_daily_trading_operator,
 )
 from ai_os.store import AIOS
 from ai_os.supervizor import (
@@ -100,6 +101,11 @@ def parser() -> argparse.ArgumentParser:
     install.add_argument("--minute", type=int, default=0)
     schedule.add_parser("cycle-status", help="Show local model-cycle schedule status")
     schedule.add_parser("cycle-uninstall", help="Remove local model-cycle schedule")
+    schedule.add_parser("trading-status", help="Show local trading-operator schedule status")
+    schedule.add_parser("trading-uninstall", help="Remove local trading-operator schedule")
+    trading_install = schedule.add_parser("trading-install", help="Install local trading-operator LaunchAgent")
+    trading_install.add_argument("--hour", type=int, default=8)
+    trading_install.add_argument("--minute", type=int, default=30)
     cycle_install = schedule.add_parser("cycle-install", help="Install a local model-cycle LaunchAgent")
     cycle_install.add_argument("--hour", type=int, default=15)
     cycle_install.add_argument("--minute", type=int, default=5)
@@ -217,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
             _print(daily_cycle_status())
         elif args.command == "schedule" and args.action == "cycle-uninstall":
             _print(uninstall_daily_cycle())
+        elif args.command == "schedule" and args.action == "trading-install":
+            _print(install_daily_trading_operator(args.hour, args.minute))
+        elif args.command == "schedule" and args.action == "trading-status":
+            _print(daily_trading_operator_status())
+        elif args.command == "schedule" and args.action == "trading-uninstall":
+            _print(uninstall_daily_trading_operator())
         elif args.command == "plan":
             _print(Planner(store).plan())
         elif args.command == "model-plan":

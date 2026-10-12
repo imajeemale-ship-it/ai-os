@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.scheduler import (
-    daily_brief_status, daily_cycle_status, install_daily_brief,
-    install_daily_cycle, uninstall_daily_brief,
+    daily_brief_status, daily_cycle_status, daily_trading_operator_status, install_daily_brief,
+    install_daily_cycle, install_daily_trading_operator, uninstall_daily_brief,
 )
 from ai_os.store import AIOS
 
@@ -108,6 +108,29 @@ class SchedulerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             mock_path.return_value = Path(directory) / "missing.plist"
             self.assertEqual(daily_cycle_status(), {"installed": "no"})
+
+    @patch("ai_os.scheduler._launchctl")
+    @patch("ai_os.scheduler.trading_plist_path")
+    def test_install_creates_separate_daily_trading_operator(self, mock_path, launchctl):
+        launchctl.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "com.kd.ai-os.trading-daily-operator.plist"
+            mock_path.return_value = target
+            with patch("ai_os.scheduler.Path.home", return_value=Path(directory)):
+                result = install_daily_trading_operator(hour=8, minute=30)
+            import plistlib
+            parsed = plistlib.loads(target.read_bytes())
+            self.assertEqual(parsed["Label"], "com.kd.ai-os.trading-daily-operator")
+            self.assertEqual(parsed["ProgramArguments"][-2:], ["trading-daily-operator", "--save"])
+            self.assertEqual(parsed["StartCalendarInterval"], {"Hour": 8, "Minute": 30})
+            self.assertIn("trading-daily-operator.log", parsed["StandardOutPath"])
+            self.assertEqual(result["time"], "08:30")
+
+    @patch("ai_os.scheduler.trading_plist_path")
+    def test_trading_status_absent_without_side_effects(self, mock_path):
+        with tempfile.TemporaryDirectory() as directory:
+            mock_path.return_value = Path(directory) / "missing.plist"
+            self.assertEqual(daily_trading_operator_status(), {"installed": "no"})
 
 
 if __name__ == "__main__":

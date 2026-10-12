@@ -9,6 +9,7 @@ from pathlib import Path
 
 LABEL = "com.kd.ai-os.daily-brief"
 CYCLE_LABEL = "com.kd.ai-os.daily-cycle"
+TRADING_LABEL = "com.kd.ai-os.trading-daily-operator"
 
 
 def plist_path() -> Path:
@@ -126,6 +127,65 @@ def daily_cycle_status() -> dict[str, str]:
     config = plistlib.loads(path.read_bytes())
     schedule = config.get("StartCalendarInterval", {})
     result = _launchctl("print", f"gui/{os.getuid()}/{CYCLE_LABEL}")
+    return {
+        "installed": "yes",
+        "loaded": "yes" if result.returncode == 0 else "no",
+        "time": f"{schedule.get('Hour', '?'):02d}:{schedule.get('Minute', '?'):02d}",
+        "timezone": "Mac local time",
+        "plist": str(path),
+    }
+
+
+
+def trading_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{TRADING_LABEL}.plist"
+
+
+def install_daily_trading_operator(hour: int = 8, minute: int = 30) -> dict[str, str]:
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError("Schedule time must be a valid 24-hour time")
+    path = trading_plist_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    log_dir = Path.home() / ".ai-os" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    config = {
+        "Label": TRADING_LABEL,
+        "ProgramArguments": [sys.executable, "-m", "ai_os", "trading-daily-operator", "--save"],
+        "WorkingDirectory": str(Path(__file__).resolve().parent.parent),
+        "EnvironmentVariables": {"AI_OS_DB": str(Path.home() / ".ai-os" / "ai_os.db")},
+        "StartCalendarInterval": {"Hour": hour, "Minute": minute},
+        "RunAtLoad": False,
+        "ProcessType": "Background",
+        "StandardOutPath": str(log_dir / "trading-daily-operator.log"),
+        "StandardErrorPath": str(log_dir / "trading-daily-operator.error.log"),
+    }
+    temp_path = path.with_suffix(".plist.tmp")
+    with temp_path.open("wb") as stream:
+        plistlib.dump(config, stream, sort_keys=True)
+    os.replace(temp_path, path)
+    domain = f"gui/{os.getuid()}"
+    _launchctl("bootout", f"{domain}/{TRADING_LABEL}")
+    result = _launchctl("bootstrap", domain, str(path))
+    if result.returncode:
+        raise RuntimeError(f"Could not load trading operator schedule: {result.stderr.strip() or result.stdout.strip()}")
+    return {"label": TRADING_LABEL, "plist": str(path), "time": f"{hour:02d}:{minute:02d}", "timezone": "Mac local time"}
+
+
+def uninstall_daily_trading_operator() -> dict[str, str]:
+    path = trading_plist_path()
+    result = _launchctl("bootout", f"gui/{os.getuid()}/{TRADING_LABEL}")
+    if path.exists():
+        path.unlink()
+    return {"label": TRADING_LABEL, "removed": "yes", "launchctl_status": "unloaded" if result.returncode == 0 else "was not loaded"}
+
+
+def daily_trading_operator_status() -> dict[str, str]:
+    path = trading_plist_path()
+    if not path.exists():
+        return {"installed": "no"}
+    config = plistlib.loads(path.read_bytes())
+    schedule = config.get("StartCalendarInterval", {})
+    result = _launchctl("print", f"gui/{os.getuid()}/{TRADING_LABEL}")
     return {
         "installed": "yes",
         "loaded": "yes" if result.returncode == 0 else "no",

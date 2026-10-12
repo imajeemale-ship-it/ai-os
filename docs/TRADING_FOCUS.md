@@ -182,3 +182,26 @@ Saved reports go to:
 ```
 
 The report combines live scoreboard status, method readiness, promotion review, and the locked real-trading gate.
+
+
+## Daily Schedule
+
+Install the Mac LaunchAgent for the paper-only trading operator:
+
+```bash
+python3 -m ai_os schedule trading-install --hour 8 --minute 30
+```
+
+Check whether it is installed and loaded:
+
+```bash
+python3 -m ai_os schedule trading-status
+```
+
+Remove it if needed:
+
+```bash
+python3 -m ai_os schedule trading-uninstall
+```
+
+The schedule uses Mac local time and writes reports to `~/.ai-os/trading-reports/`. It does not enable live trading; the real-trading readiness gate remains locked until broker classification, live policy, risk limits, and KD final approval are complete.
