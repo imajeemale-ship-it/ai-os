@@ -187,6 +187,8 @@ Create the locked risk limits draft before any live execution work:
 ```bash
 python3 -m ai_os trading-risk-draft
 python3 -m ai_os trading-risk-draft --save
+python3 -m ai_os trading-risk-init
+python3 -m ai_os trading-risk-validate --file ~/.ai-os/risk-limits.json
 ```
 
 The draft forces numeric limits before approval: starting capital, max daily loss, max weekly loss, max position size, max open positions, trades per day, cooldown, and kill switch.

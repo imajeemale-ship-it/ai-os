@@ -1,6 +1,7 @@
 """Draft live-trading risk limits without enabling execution."""
 
 from __future__ import annotations
+import json
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,34 @@ RISK_FIELDS = [
     "cooldown_after_loss_minutes",
     "kill_switch_trigger",
 ]
+
+
+def default_risk_limits_path() -> Path:
+    return Path.home() / ".ai-os" / "risk-limits.json"
+
+
+def load_risk_limits(path: str | Path) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict) and "limits" in payload:
+        payload = payload["limits"]
+    if not isinstance(payload, dict):
+        raise ValueError("Risk limits must be an object or an object with a limits object")
+    return {field: payload.get(field) for field in RISK_FIELDS}
+
+
+def write_risk_limits_template(path: str | Path | None = None, overwrite: bool = False) -> dict[str, Any]:
+    target = Path(path) if path else default_risk_limits_path()
+    if target.exists() and not overwrite:
+        return {"path": str(target), "written": False, "reason": "already_exists"}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "mode": "risk_limits_template_live_trading_locked",
+        "execution_allowed": False,
+        "trading_allowed": False,
+        "limits": {field: None for field in RISK_FIELDS},
+    }
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return {"path": str(target), "written": True, "field_count": len(RISK_FIELDS)}
 
 
 def risk_limits_draft(today: date | None = None) -> dict[str, Any]:

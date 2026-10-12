@@ -3,7 +3,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from ai_os.risk_limits import risk_limits_draft, render_risk_limits_draft, save_risk_limits_draft, validate_risk_limits
+from ai_os.risk_limits import load_risk_limits, risk_limits_draft, render_risk_limits_draft, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
 
 
 class RiskLimitsTests(unittest.TestCase):
@@ -35,6 +35,23 @@ class RiskLimitsTests(unittest.TestCase):
             path = save_risk_limits_draft(Path(directory), date(2026, 10, 12))
             self.assertEqual(path.name, "2026-10-12-risk-limits-draft.md")
             self.assertIn("LIVE TRADING RISK LIMITS DRAFT", path.read_text())
+
+    def test_writes_and_loads_risk_limits_template(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "risk-limits.json"
+            result = write_risk_limits_template(path)
+            loaded = load_risk_limits(path)
+            self.assertTrue(result["written"])
+            self.assertIn("starting_capital_usd", loaded)
+            self.assertIsNone(loaded["kill_switch_trigger"])
+
+    def test_risk_template_does_not_overwrite_by_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "risk-limits.json"
+            path.write_text("{}")
+            result = write_risk_limits_template(path)
+            self.assertFalse(result["written"])
+            self.assertEqual(result["reason"], "already_exists")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from ai_os.planner import Planner
 from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_proposals
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
-from ai_os.risk_limits import render_risk_limits_draft, risk_limits_draft, save_risk_limits_draft
+from ai_os.risk_limits import load_risk_limits, render_risk_limits_draft, risk_limits_draft, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
@@ -101,6 +101,11 @@ def parser() -> argparse.ArgumentParser:
     policy.add_argument("--save", action="store_true")
     risk = commands.add_parser("trading-risk-draft", help="Create or show locked live-trading risk limits draft")
     risk.add_argument("--save", action="store_true")
+    risk_init = commands.add_parser("trading-risk-init", help="Create a local risk limits JSON template")
+    risk_init.add_argument("--path", help="Destination JSON path; defaults to ~/.ai-os/risk-limits.json")
+    risk_init.add_argument("--overwrite", action="store_true")
+    risk_validate = commands.add_parser("trading-risk-validate", help="Validate risk limits JSON without enabling trading")
+    risk_validate.add_argument("--file", required=True)
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     real.add_argument("--broker-tools", help="JSON file with broker tools to classify")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
@@ -236,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_risk_limits_draft())})
             else:
                 print(render_risk_limits_draft(risk_limits_draft()))
+        elif args.command == "trading-risk-init":
+            _print(write_risk_limits_template(args.path, args.overwrite))
+        elif args.command == "trading-risk-validate":
+            _print(validate_risk_limits(load_risk_limits(args.file)))
         elif args.command == "trading-real-readiness":
             broker_tools = load_broker_tool_inventory(args.broker_tools) if args.broker_tools else None
             print(render_real_trading_readiness(real_trading_readiness(broker_tools)))
