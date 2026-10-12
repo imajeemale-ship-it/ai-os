@@ -63,3 +63,17 @@ Current candidate plan for `Rico_vs_THE_WORLD_KD_Cut_2_COMPLETE.mp4`:
 - opening hook: 0s-20s
 - middle turn: 59s-79s
 - closing payoff: 119s-139s
+
+## Clip Export
+
+Export a planned segment:
+
+```bash
+python3 -m ai_os m3-export /path/to/source.mp4 --start 59 --duration 20 --label middle_turn --output-dir ~/Desktop/M3_Exports
+```
+
+Current exported candidates are in:
+
+```text
+/Users/unagidon/Desktop/M3_Exports
+```

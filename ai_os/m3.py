@@ -199,3 +199,44 @@ def render_clip_plan(plan: dict[str, Any]) -> str:
         )
     lines.extend(["", "NEXT ACTION", f"- {plan['next_action']}", ""])
     return "\n".join(lines)
+
+
+def export_clip(source: str, start_seconds: int, duration_seconds: int,
+                output_dir: str | None = None, label: str = "candidate") -> dict[str, Any]:
+    source_path = Path(source).expanduser()
+    if not source_path.exists():
+        raise ValueError(f"video not found: {source_path}")
+    target_dir = Path(output_dir).expanduser() if output_dir else Path.home() / "Desktop" / "M3_Exports"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    safe_label = "".join(char if char.isalnum() or char in "-_" else "_" for char in label).strip("_") or "candidate"
+    output = target_dir / f"{source_path.stem}_{safe_label}_{start_seconds}s_{duration_seconds}s.mp4"
+    result = subprocess.run([
+        "ffmpeg", "-y",
+        "-ss", str(start_seconds),
+        "-i", str(source_path),
+        "-t", str(duration_seconds),
+        "-c", "copy",
+        str(output),
+    ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "ffmpeg export failed")
+    return {
+        "source": str(source_path),
+        "output": str(output),
+        "start_seconds": start_seconds,
+        "duration_seconds": duration_seconds,
+        "size_mb": round(output.stat().st_size / (1024 * 1024), 1),
+    }
+
+
+def render_export(result: dict[str, Any]) -> str:
+    return "\n".join([
+        "M3 CLIP EXPORTED",
+        "",
+        f"Source: {result['source']}",
+        f"Output: {result['output']}",
+        f"Start: {result['start_seconds']}s",
+        f"Duration: {result['duration_seconds']}s",
+        f"Size: {result['size_mb']} MB",
+        "",
+    ])

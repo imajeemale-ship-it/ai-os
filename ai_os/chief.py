@@ -152,3 +152,34 @@ def save_chief_of_staff_report(store: AIOS, repo_paths: list[str | Path] | None 
             os.unlink(temp_name)
     store.record_event("report", str(destination), "chief_of_staff.saved", {"path": str(destination)})
     return destination
+
+
+def priority_reasoning(store: AIOS) -> list[str]:
+    plan = Planner(store).plan()
+    reasons: list[str] = []
+    recommended = plan["recommended_next_action"]
+    if recommended:
+        reasons.append(
+            f"Selected {recommended['project']} because its task '{recommended['title']}' is ready and scored highest."
+        )
+        reasons.append(f"Score reason: {recommended['reason']}.")
+    else:
+        reasons.append("No ready task is available, so Johnny 5 needs a task created or unblocked.")
+    blocked = plan["blocked_tasks"]
+    if blocked:
+        blocked_names = ", ".join(f"{item['project']}: {item['title']}" for item in blocked)
+        reasons.append(f"Blocked work was skipped: {blocked_names}.")
+    ranked = plan["ranked_actions"]
+    if ranked:
+        order = "; ".join(
+            f"{item['project']} ({item['priority_score']})" for item in ranked[:5]
+        )
+        reasons.append(f"Top ready queue: {order}.")
+    return reasons
+
+
+def render_priority_reasoning(store: AIOS) -> str:
+    lines = ["WHY JOHNNY 5 CHOSE THIS", ""]
+    lines.extend(f"- {reason}" for reason in priority_reasoning(store))
+    lines.append("")
+    return "\n".join(lines)

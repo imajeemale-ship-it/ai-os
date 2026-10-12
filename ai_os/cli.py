@@ -6,10 +6,10 @@ import json
 import sys
 from typing import Any
 from ai_os.bootstrap import bootstrap
-from ai_os.chief import chief_of_staff_report, render_chief_of_staff, save_chief_of_staff_report
+from ai_os.chief import chief_of_staff_report, render_chief_of_staff, render_priority_reasoning, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
-from ai_os.m3 import build_clip_plan, build_m3_proof, build_m3_workflow, render_clip_plan, render_m3_proof, render_m3_sources, render_m3_workflow, scan_m3_sources
+from ai_os.m3 import build_clip_plan, build_m3_proof, build_m3_workflow, export_clip, render_clip_plan, render_export, render_m3_proof, render_m3_sources, render_m3_workflow, scan_m3_sources
 from ai_os.planner import Planner
 from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_proposals
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
@@ -38,6 +38,7 @@ def parser() -> argparse.ArgumentParser:
     chief.add_argument("--repo", action="append", default=[], help="Repository path to inspect; may be repeated")
     assign = commands.add_parser("assign-next", help="Route Johnny 5 next action to the right worker")
     assign.add_argument("--repo", action="append", default=[], help="Repository path to inspect; may be repeated")
+    commands.add_parser("why-next", help="Explain why Johnny 5 chose the current next action")
     daily = commands.add_parser("daily-brief", help="Generate a local Markdown daily brief")
     daily.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
     cycle = commands.add_parser("daily-cycle", help="Generate a daily brief and optional local model proposal")
@@ -50,6 +51,12 @@ def parser() -> argparse.ArgumentParser:
     clip = commands.add_parser("m3-clip-plan", help="Create candidate clip segments from a source video")
     clip.add_argument("source")
     clip.add_argument("--length", type=int, default=20)
+    export = commands.add_parser("m3-export", help="Export a source video segment")
+    export.add_argument("source")
+    export.add_argument("--start", type=int, required=True)
+    export.add_argument("--duration", type=int, default=20)
+    export.add_argument("--label", default="candidate")
+    export.add_argument("--output-dir")
     proof = commands.add_parser("m3-proof", help="Log proof for an M3 content asset")
     proof.add_argument("--asset", required=True)
     proof.add_argument("--hook", required=True)
@@ -120,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(render_chief_of_staff(chief_of_staff_report(store, repo_paths)))
         elif args.command == "assign-next":
             print(render_assignment(assign_next(store, args.repo or None)))
+        elif args.command == "why-next":
+            print(render_priority_reasoning(store))
         elif args.command == "daily-brief":
             if args.save:
                 _print({"saved_to": str(save_daily_brief(store))})
@@ -139,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             print(render_m3_sources(scan_m3_sources(args.path or None)))
         elif args.command == "m3-clip-plan":
             print(render_clip_plan(build_clip_plan(args.source, args.length)))
+        elif args.command == "m3-export":
+            print(render_export(export_clip(args.source, args.start, args.duration, args.output_dir, args.label)))
         elif args.command == "m3-proof":
             proof = build_m3_proof(args.asset, args.hook, args.next_action, args.platform, args.source)
             store.record_event("m3", proof["asset"], "m3.proof_logged", proof)

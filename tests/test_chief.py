@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ai_os.chief import chief_of_staff_report, inspect_repo, render_chief_of_staff, save_chief_of_staff_report
+from ai_os.chief import chief_of_staff_report, inspect_repo, render_chief_of_staff, render_priority_reasoning, save_chief_of_staff_report
 from ai_os.store import AIOS
 
 
@@ -66,6 +66,15 @@ class ChiefOfStaffTests(unittest.TestCase):
         self.assertTrue(destination.exists())
         events = self.store.recent_events()
         self.assertEqual(events[0]["event_type"], "chief_of_staff.saved")
+
+
+    def test_priority_reasoning_explains_selected_task(self):
+        project = self.store.add_project("M3", "Content engine", 1)
+        self.store.add_task(project["id"], "Build daily workflow", priority=1)
+        rendered = render_priority_reasoning(self.store)
+        self.assertIn("WHY JOHNNY 5 CHOSE THIS", rendered)
+        self.assertIn("Selected M3", rendered)
+        self.assertIn("Build daily workflow", rendered)
 
 
 if __name__ == "__main__":
