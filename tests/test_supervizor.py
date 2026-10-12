@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, method_readiness, method_promotion_review, render_method_promotion_review, render_method_readiness, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, method_readiness, method_promotion_review, render_method_promotion_review, render_method_readiness, real_trading_readiness, render_real_trading_readiness, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -147,6 +147,15 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertFalse(report["execution_allowed"])
         self.assertEqual(report["methods"][0]["recommendation"], "candidate_for_validation")
         self.assertIn("promotion requires human decision", rendered)
+
+
+    def test_real_trading_readiness_stays_locked_until_required_gates_pass(self):
+        report = real_trading_readiness()
+        rendered = render_real_trading_readiness(report)
+        self.assertFalse(report["ready_for_real_trading"])
+        self.assertFalse(report["execution_allowed"])
+        self.assertIn("broker_tool_classification", rendered)
+        self.assertIn("human_final_approval", rendered)
 
 
 if __name__ == "__main__":

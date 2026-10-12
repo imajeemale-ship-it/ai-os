@@ -506,3 +506,41 @@ def render_method_promotion_review(report: dict[str, Any]) -> str:
         )
     lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
     return "\n".join(lines)
+
+
+
+def real_trading_readiness() -> dict[str, Any]:
+    checks = [
+        {"name": "paper_methods_testing", "passed": True, "detail": "Two paper-only methods are in testing."},
+        {"name": "execution_flags_disabled", "passed": True, "detail": "AI-OS reports execution/trading disabled."},
+        {"name": "broker_tool_classification", "passed": False, "detail": "Robinhood MCP tool discovery/classification is still blocked."},
+        {"name": "explicit_live_policy", "passed": False, "detail": "No approved live-trading policy revision exists."},
+        {"name": "funding_and_risk_limits", "passed": False, "detail": "Live account, budget, max loss, and kill switch are not approved."},
+        {"name": "human_final_approval", "passed": False, "detail": "KD has not approved live execution scope."},
+    ]
+    return {
+        "mode": "live_trading_locked",
+        "ready_for_real_trading": all(item["passed"] for item in checks),
+        "checks": checks,
+        "next_action": "Keep paper testing until broker tools, live policy, risk limits, and KD approval are complete.",
+        "execution_allowed": False,
+        "trading_allowed": False,
+    }
+
+
+def render_real_trading_readiness(report: dict[str, Any]) -> str:
+    lines = [
+        "REAL TRADING READINESS",
+        "",
+        f"Mode: {report['mode']}",
+        f"Ready for real trading: {str(report['ready_for_real_trading']).lower()}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "CHECKS",
+    ]
+    for check in report["checks"]:
+        status = "PASS" if check["passed"] else "BLOCKED"
+        lines.append(f"- {status}: {check['name']} - {check['detail']}")
+    lines.extend(["", "NEXT ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)

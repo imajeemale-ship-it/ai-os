@@ -23,8 +23,8 @@ from ai_os.supervizor import (
     evidence_review_queue, live_trading_focus, method_promotion_review,
     method_readiness, read_supervizor_snapshot, render_evidence_review_queue,
     render_live_trading_focus, render_method_promotion_review,
-    render_method_readiness, render_price_path_preview, render_trading_focus,
-    score_with_price_path_preview, trading_focus,
+    render_method_readiness, render_price_path_preview, render_real_trading_readiness, render_trading_focus,
+    score_with_price_path_preview, real_trading_readiness, trading_focus,
 )
 from ai_os.workers import assign_next, render_assignment
 
@@ -85,6 +85,7 @@ def parser() -> argparse.ArgumentParser:
     preview.add_argument("--record-index", type=int, required=True)
     preview.add_argument("--prices", required=True)
     preview.add_argument("--scoreboard")
+    real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
@@ -183,13 +184,15 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "trading-promotions":
             print(render_method_promotion_review(method_promotion_review(args.vault, args.outcomes)))
         elif args.command == "trading-methods":
-            print(render_method_promotion_review, render_method_promotion_review, method_readiness(method_promotion_review, method_readiness(args.vault, args.outcomes)))
+            print(render_method_readiness(method_readiness(args.vault, args.outcomes)))
         elif args.command == "trading-live-focus":
             print(render_live_trading_focus(live_trading_focus(args.scoreboard)))
         elif args.command == "trading-evidence":
             print(render_evidence_review_queue(evidence_review_queue(args.scoreboard)))
         elif args.command == "trading-outcome-preview":
             print(render_price_path_preview(score_with_price_path_preview(args.record_index, args.prices, args.scoreboard)))
+        elif args.command == "trading-real-readiness":
+            print(render_real_trading_readiness(real_trading_readiness()))
         elif args.command == "trading-focus":
             print(render_trading_focus(trading_focus(args.report)))
         elif args.command == "supervizor-status":

@@ -141,3 +141,22 @@ Current recommendations:
 - Fibonacci Confluence Placeholder: candidate_for_testing
 
 Promotion requires human decision and does not enable trading.
+
+## Real Trading Readiness Gate
+
+Show the locked path toward future real trading:
+
+```bash
+python3 -m ai_os trading-real-readiness
+```
+
+Current state:
+
+- Paper methods in testing: pass
+- Execution flags disabled: pass
+- Broker tool classification: blocked
+- Live trading policy revision: blocked
+- Funding/risk limits/kill switch: blocked
+- KD final approval: blocked
+
+This keeps future real trading easy to prepare for but impossible to enable accidentally.
