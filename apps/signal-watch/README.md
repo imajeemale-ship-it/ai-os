@@ -35,6 +35,17 @@ and explainable supporting or blocking reasons. Missing market context or failed
 paper-safety checks produce `REJECT`. These values are advisory only; no broker or
 exchange execution is performed.
 
+When a paper position closes, the paper trader appends an immutable learning
+observation containing its prediction error, calibration score, decision accuracy,
+market-context key, and consensus effectiveness. Export the learning report with:
+
+```sh
+python3 apps/signal-watch/scripts/report_learning.py
+```
+
+This writes JSON and Markdown to `~/.ai-os/reports/` and never changes historical
+signals, positions, or events.
+
 ## Requirements
 
 - Python 3.11+

@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -257,6 +258,55 @@ class SignalWatchTests(unittest.TestCase):
             position = db.execute("SELECT market_context_json FROM paper_positions").fetchone()
         self.assertEqual(len(events), 1)
         self.assertTrue(json.loads(position[0])["available"])
+
+    def test_closed_paper_trade_appends_learning_observation_once(self):
+        paper_spec = importlib.util.spec_from_file_location(
+            "paper_trade_signals_learning_test", APP / "scripts" / "paper_trade_signals.py"
+        )
+        paper = importlib.util.module_from_spec(paper_spec)
+        assert paper_spec and paper_spec.loader
+        sys.modules[paper_spec.name] = paper
+        paper_spec.loader.exec_module(paper)
+        path = Path(self.temp.name) / "learning.db"
+        with sqlite3.connect(path) as db:
+            db.row_factory = sqlite3.Row
+            paper.init_db(db)
+            context = self.market_context() | {"market_context_score": 70.0}
+            db.execute(
+                """INSERT INTO paper_positions
+                (signal_id,source,ticker,side,entry_price,remaining_pct,targets_json,status,opened_at,updated_at,
+                 predicted_conviction,predicted_decision,predicted_overall_score,predicted_consensus_score,
+                 predicted_market_context_score,market_context_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (7, "Wallstreet Queen Official®", "BTC", "long", 100.0, 100.0,
+                 "[110,120,130,140]", "open", "2026-10-06T12:00:00Z", "2026-10-06T12:00:00Z",
+                 80.0, "APPROVE", 85.0, 80.0, 70.0, json.dumps(context)),
+            )
+            paper.current_price = lambda ticker: 140.0
+            events = paper.update_positions(db, dry_run=False)
+            self.assertEqual(len(events), 4)
+            observation = db.execute("SELECT * FROM learning_observations").fetchone()
+            self.assertIsNotNone(observation)
+            self.assertEqual(observation["outcome"], "WIN")
+            self.assertAlmostEqual(observation["prediction_error"], -20.0)
+            self.assertAlmostEqual(observation["calibration_score"], 80.0)
+            self.assertEqual(observation["decision_correct"], 1)
+            self.assertEqual(observation["consensus_effective"], 1)
+            self.assertIn("up|above_ema200|medium|London|Greed", observation["market_context_key"])
+            self.assertFalse(paper.record_learning_observation(db, 1))
+
+            report_spec = importlib.util.spec_from_file_location(
+                "report_learning_test", APP / "scripts" / "report_learning.py"
+            )
+            report = importlib.util.module_from_spec(report_spec)
+            assert report_spec and report_spec.loader
+            report_spec.loader.exec_module(report)
+            result = report.build_report(db)
+            self.assertEqual(result["observations"], 1)
+            self.assertEqual(result["decision_accuracy_pct"], 100.0)
+            self.assertEqual(result["calibration_score"], 80.0)
+            self.assertEqual(result["channels"][0]["channel"], "Wallstreet Queen Official®")
+            self.assertIn("Calibration score", report.render_markdown(result))
 
     def test_duplicate_text_merges_across_sources(self):
         first = self.make_signal(message_id=1, source="A")

@@ -121,6 +121,47 @@ def init_db(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(paper_positions)")}
     if "market_context_json" not in columns:
         db.execute("ALTER TABLE paper_positions ADD COLUMN market_context_json TEXT")
+    prediction_columns = {
+        "predicted_conviction": "REAL",
+        "predicted_decision": "TEXT",
+        "predicted_overall_score": "REAL",
+        "predicted_consensus_score": "REAL",
+        "predicted_market_context_score": "REAL",
+    }
+    for name, definition in prediction_columns.items():
+        if name not in columns:
+            db.execute(f"ALTER TABLE paper_positions ADD COLUMN {name} {definition}")
+    db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS learning_observations (
+            id INTEGER PRIMARY KEY,
+            position_id INTEGER NOT NULL UNIQUE,
+            signal_id INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            closed_at TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            realized_pnl_pct REAL NOT NULL,
+            predicted_conviction REAL,
+            predicted_decision TEXT,
+            predicted_overall_score REAL,
+            predicted_consensus_score REAL,
+            predicted_market_context_score REAL,
+            prediction_error REAL,
+            calibration_score REAL,
+            decision_correct INTEGER,
+            consensus_effective INTEGER,
+            market_context_key TEXT,
+            market_context_json TEXT,
+            recorded_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_learning_source ON learning_observations(source, closed_at);
+        CREATE INDEX IF NOT EXISTS idx_learning_context ON learning_observations(market_context_key, closed_at);
+        CREATE INDEX IF NOT EXISTS idx_learning_decision ON learning_observations(predicted_decision, closed_at);
+        """
+    )
+    for row in db.execute("SELECT id FROM paper_positions WHERE status='closed'").fetchall():
+        record_learning_observation(db, row[0])
 
 
 def parse_entry(row: sqlite3.Row) -> float | None:
@@ -239,12 +280,67 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         db.execute(
             """
             INSERT INTO paper_positions
-            (signal_id,source,ticker,side,entry_price,remaining_pct,stop_loss,targets_json,opened_at,updated_at,note,market_context_json)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            (signal_id,source,ticker,side,entry_price,remaining_pct,stop_loss,targets_json,opened_at,updated_at,note,market_context_json,
+             predicted_conviction,predicted_decision,predicted_overall_score,predicted_consensus_score,predicted_market_context_score)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (row["id"], row["source"], row["ticker"], side, entry, 100.0, row["stop_loss"], json.dumps(targets), utc_now(), utc_now(), note, json.dumps(market_context, ensure_ascii=False)),
+            (row["id"], row["source"], row["ticker"], side, entry, 100.0, row["stop_loss"], json.dumps(targets), utc_now(), utc_now(), note,
+             json.dumps(market_context, ensure_ascii=False), float(conviction), decision["decision"], decision["overall_score"],
+             consensus.get("consensus_score"), market_context.get("market_context_score")),
         )
     return events
+
+
+def _market_context_key(context: dict[str, Any]) -> str:
+    return "|".join([
+        str(context.get("btc_trend") or "unknown"),
+        "above_ema200" if context.get("btc_above_ema200") else "below_ema200",
+        str(context.get("market_volatility") or "unknown"),
+        str(context.get("trading_session") or "unknown"),
+        str(context.get("fear_greed_label") or "unknown"),
+    ])
+
+
+def record_learning_observation(db: sqlite3.Connection, position_id: int, closed_at: str | None = None) -> bool:
+    """Append one immutable prediction/outcome observation for a newly closed position."""
+    position = db.execute("SELECT * FROM paper_positions WHERE id=? AND status='closed'", (position_id,)).fetchone()
+    if position is None:
+        return False
+    if db.execute("SELECT 1 FROM learning_observations WHERE position_id=?", (position_id,)).fetchone():
+        return False
+    realized = float(position["realized_pnl_pct"] or 0.0)
+    outcome = "WIN" if realized > 0 else "LOSS" if realized < 0 else "DRAW"
+    conviction = position["predicted_conviction"]
+    overall = position["predicted_overall_score"]
+    decision = position["predicted_decision"]
+    actual_probability = 100.0 if outcome == "WIN" else 0.0
+    prediction_error = (float(conviction) - actual_probability) if conviction is not None else None
+    calibration_score = round(max(0.0, 100.0 - abs(prediction_error)), 4) if prediction_error is not None else None
+    decision_correct = None
+    if decision is not None:
+        decision_correct = int((decision == "APPROVE" and outcome == "WIN") or (decision == "WATCH" and outcome != "LOSS"))
+    consensus_effective = None
+    if position["predicted_consensus_score"] is not None:
+        consensus_effective = int((float(position["predicted_consensus_score"]) >= 50 and outcome == "WIN") or
+                                  (float(position["predicted_consensus_score"]) < 50 and outcome != "WIN"))
+    try:
+        context = json.loads(position["market_context_json"] or "{}")
+    except json.JSONDecodeError:
+        context = {}
+    db.execute(
+        """INSERT INTO learning_observations
+        (position_id,signal_id,source,ticker,closed_at,outcome,realized_pnl_pct,
+         predicted_conviction,predicted_decision,predicted_overall_score,predicted_consensus_score,
+         predicted_market_context_score,prediction_error,calibration_score,decision_correct,
+         consensus_effective,market_context_key,market_context_json,recorded_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (position["id"], position["signal_id"], position["source"], position["ticker"],
+         closed_at or position["closed_at"] or utc_now(), outcome, realized, conviction, decision,
+         overall, position["predicted_consensus_score"], position["predicted_market_context_score"],
+         prediction_error, calibration_score, decision_correct, consensus_effective,
+         _market_context_key(context), position["market_context_json"], utc_now()),
+    )
+    return True
 
 
 def update_positions(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
@@ -268,6 +364,7 @@ def update_positions(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
             if not dry_run:
                 db.execute("UPDATE paper_positions SET status='closed', remaining_pct=0, realized_pnl_pct=?, updated_at=?, closed_at=?, note=? WHERE id=?", (realized + weighted, utc_now(), utc_now(), note, pos["id"]))
                 db.execute("INSERT INTO paper_events(position_id,signal_id,event_at,action,price,size_pct,pnl_pct,note) VALUES(?,?,?,?,?,?,?,?)", (pos["id"], pos["signal_id"], utc_now(), "stop", price, remaining, weighted, note))
+                record_learning_observation(db, pos["id"])
             continue
         while next_idx < len(targets) and price >= float(targets[next_idx]) and remaining > 0:
             tranche = 25.0 if next_idx < 3 else remaining
@@ -286,6 +383,8 @@ def update_positions(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         if not dry_run:
             status = "closed" if remaining <= 0 else "open"
             db.execute("UPDATE paper_positions SET remaining_pct=?, next_target_index=?, status=?, realized_pnl_pct=?, updated_at=?, closed_at=CASE WHEN ?='closed' THEN ? ELSE closed_at END WHERE id=?", (remaining, next_idx, status, realized, utc_now(), status, utc_now(), pos["id"]))
+            if status == "closed":
+                record_learning_observation(db, pos["id"])
     return events
 
 

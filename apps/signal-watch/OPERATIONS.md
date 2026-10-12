@@ -129,6 +129,17 @@ Unavailable market context and failed paper-admission checks block the decision.
 The risk and size fields are recommendations for paper review only and never place
 orders.
 
+Closed paper positions append one row to `learning_observations`; duplicate rows
+are prevented by the position ID and historical positions are never rewritten.
+Learning output can be exported with:
+
+```sh
+python3 apps/signal-watch/scripts/report_learning.py
+```
+
+The report includes channel improvement and under/over-confidence lists, decision
+accuracy, calibration score, market-context statistics, and consensus effectiveness.
+
 Install or refresh the scheduled paper trader:
 
 ```sh
