@@ -82,3 +82,20 @@ After local-only outcome review:
 - Execution/trading remain disabled.
 
 Next bottleneck: build or refine method inventory so resolved signals can produce testable strategy evidence.
+
+## Method Readiness
+
+Show whether Supervizor has enough method inventory for backtesting:
+
+```bash
+python3 -m ai_os trading-methods
+```
+
+Current method state:
+
+- Methods: 1
+- Method outcomes: 0
+- Status: all untested
+- Source type: fibonacci only
+
+Next bottleneck: add or refine at least two concrete, testable methods before expecting a meaningful backtest queue.

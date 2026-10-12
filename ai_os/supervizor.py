@@ -12,6 +12,8 @@ DEFAULT_REPORT = (
 MAX_REPORT_BYTES = 1_000_000
 DEFAULT_SCOREBOARD = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_signals" / "scoreboard.jsonl"
 DEFAULT_PRICE_PATH_DIR = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_price_paths"
+DEFAULT_KNOWLEDGE_VAULT = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_knowledge" / "knowledge_vault.jsonl"
+DEFAULT_METHOD_OUTCOMES = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_knowledge" / "method_outcomes.jsonl"
 
 
 def read_supervizor_snapshot(path: str | Path | None = None) -> dict[str, Any]:
@@ -355,6 +357,74 @@ def render_live_trading_focus(report: dict[str, Any]) -> str:
         f"Resolved records: {report['resolved_count']}",
         f"Unresolved records: {report['unresolved_count']}",
         f"Outcomes: {report['outcomes']}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "BLOCKERS",
+    ]
+    lines.extend(f"- {item}" for item in report["blockers"])
+    lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)
+
+
+
+def read_jsonl_records(path: str | Path) -> list[dict[str, Any]]:
+    source = Path(path).expanduser()
+    if not source.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"{source}:{line_number}: expected object")
+        records.append(value)
+    return records
+
+
+def method_readiness(vault_path: str | Path | None = None,
+                     outcomes_path: str | Path | None = None) -> dict[str, Any]:
+    methods = read_jsonl_records(vault_path or DEFAULT_KNOWLEDGE_VAULT)
+    outcomes = read_jsonl_records(outcomes_path or DEFAULT_METHOD_OUTCOMES)
+    by_status: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    for method in methods:
+        status = str(method.get("status") or "unknown")
+        source_type = str(method.get("source_type") or "unknown")
+        by_status[status] = by_status.get(status, 0) + 1
+        by_source[source_type] = by_source.get(source_type, 0) + 1
+    blockers = []
+    if not methods:
+        blockers.append("No method records exist.")
+    if len(methods) < 3:
+        blockers.append("Method inventory is too small for meaningful comparison.")
+    if not outcomes:
+        blockers.append("No method outcomes recorded yet.")
+    if all(method.get("status") == "untested" for method in methods) and methods:
+        blockers.append("All methods are untested.")
+    return {
+        "mode": "paper_only_watch_only",
+        "method_count": len(methods),
+        "outcome_count": len(outcomes),
+        "by_status": by_status,
+        "by_source_type": by_source,
+        "blockers": blockers or ["None for paper-only review."],
+        "next_action": "Add or refine at least two concrete, testable methods before expecting a backtest queue." if len(methods) < 3 else "Record method outcomes against resolved signals.",
+        "execution_allowed": False,
+        "trading_allowed": False,
+    }
+
+
+def render_method_readiness(report: dict[str, Any]) -> str:
+    lines = [
+        "METHOD READINESS",
+        "",
+        f"Mode: {report['mode']}",
+        f"Methods: {report['method_count']}",
+        f"Method outcomes: {report['outcome_count']}",
+        f"By status: {report['by_status']}",
+        f"By source type: {report['by_source_type']}",
         "execution_allowed: false",
         "trading_allowed: false",
         "",

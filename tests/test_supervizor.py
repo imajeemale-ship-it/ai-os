@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, render_live_trading_focus, score_with_price_path_preview, live_trading_focus, method_readiness, render_method_readiness, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -116,6 +116,19 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertEqual(focus["unresolved_count"], 1)
         self.assertEqual(focus["outcomes"], {"stop_loss_hit": 1})
         self.assertIn("LIVE PAPER TRADING FOCUS", rendered)
+
+
+    def test_method_readiness_surfaces_thin_inventory(self):
+        vault = Path(self.temp.name) / "vault.jsonl"
+        outcomes = Path(self.temp.name) / "outcomes.jsonl"
+        method = {"id": "m1", "status": "untested", "source_type": "fibonacci", "title": "Fib"}
+        vault.write_text(json.dumps(method), encoding="utf-8")
+        report = method_readiness(vault, outcomes)
+        rendered = render_method_readiness(report)
+        self.assertEqual(report["method_count"], 1)
+        self.assertEqual(report["outcome_count"], 0)
+        self.assertIn("Method inventory is too small", "\n".join(report["blockers"]))
+        self.assertIn("METHOD READINESS", rendered)
 
 
 if __name__ == "__main__":
