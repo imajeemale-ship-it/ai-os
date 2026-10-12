@@ -140,6 +140,17 @@ python3 apps/signal-watch/scripts/report_learning.py
 The report includes channel improvement and under/over-confidence lists, decision
 accuracy, calibration score, market-context statistics, and consensus effectiveness.
 
+Install the once-daily executive report job:
+
+```sh
+apps/signal-watch/scripts/install-daily-executive-report-agent.sh
+```
+
+It runs at 23:55 local time and stores immutable date-stamped files under
+`~/.ai-os/reports/daily-executive/`. Generate one manually with
+`python3 apps/signal-watch/scripts/report_daily_executive.py --date YYYY-MM-DD`.
+Existing files are preserved unless `--force` is supplied.
+
 Install or refresh the scheduled paper trader:
 
 ```sh

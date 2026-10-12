@@ -46,6 +46,10 @@ python3 apps/signal-watch/scripts/report_learning.py
 This writes JSON and Markdown to `~/.ai-os/reports/` and never changes historical
 signals, positions, or events.
 
+The daily executive report is generated automatically by its LaunchAgent and stored
+historically as `~/.ai-os/reports/daily-executive/YYYY-MM-DD.json` and `.md`. Install
+the job with `apps/signal-watch/scripts/install-daily-executive-report-agent.sh`.
+
 ## Requirements
 
 - Python 3.11+
