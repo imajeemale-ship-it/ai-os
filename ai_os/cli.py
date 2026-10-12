@@ -6,6 +6,7 @@ import json
 import sys
 from typing import Any
 from ai_os.bootstrap import bootstrap
+from ai_os.chief import chief_of_staff_report, render_chief_of_staff, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
 from ai_os.planner import Planner
@@ -30,6 +31,9 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("init", help="Initialize the local database")
     commands.add_parser("bootstrap", help="Add known projects without overwriting existing data")
     commands.add_parser("brief", help="Show today's focus and pending decisions")
+    chief = commands.add_parser("chief-of-staff", help="Run Johnny 5 Chief of Staff review")
+    chief.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/chief-of-staff/")
+    chief.add_argument("--repo", action="append", default=[], help="Repository path to inspect; may be repeated")
     daily = commands.add_parser("daily-brief", help="Generate a local Markdown daily brief")
     daily.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
     cycle = commands.add_parser("daily-cycle", help="Generate a daily brief and optional local model proposal")
@@ -90,6 +94,12 @@ def main(argv: list[str] | None = None) -> int:
             _print(bootstrap(store))
         elif args.command == "brief":
             _print(store.daily_brief())
+        elif args.command == "chief-of-staff":
+            repo_paths = args.repo or None
+            if args.save:
+                _print({"saved_to": str(save_chief_of_staff_report(store, repo_paths))})
+            else:
+                print(render_chief_of_staff(chief_of_staff_report(store, repo_paths)))
         elif args.command == "daily-brief":
             if args.save:
                 _print({"saved_to": str(save_daily_brief(store))})
