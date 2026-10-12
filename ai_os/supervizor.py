@@ -5,8 +5,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from ai_os.broker_tools import classify_broker_tools
-from ai_os.risk_limits import validate_risk_limits
+from ai_os.broker_tools import classify_broker_tools, default_broker_inventory_path, load_broker_tool_inventory
+from ai_os.risk_limits import default_risk_limits_path, load_risk_limits, validate_risk_limits
 
 DEFAULT_REPORT = (
     Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata"
@@ -545,6 +545,23 @@ def real_trading_readiness(broker_tools: list[dict[str, str]] | None = None, ris
     }
 
 
+def file_based_real_trading_readiness() -> dict[str, Any]:
+    broker_tools = None
+    risk_limits = None
+    broker_path = default_broker_inventory_path()
+    risk_path = default_risk_limits_path()
+    if broker_path.exists():
+        broker_tools = load_broker_tool_inventory(broker_path)
+    if risk_path.exists():
+        risk_limits = load_risk_limits(risk_path)
+    report = real_trading_readiness(broker_tools, risk_limits)
+    report["sources"] = {
+        "broker_tools": str(broker_path) if broker_path.exists() else "missing",
+        "risk_limits": str(risk_path) if risk_path.exists() else "missing",
+    }
+    return report
+
+
 def render_real_trading_readiness(report: dict[str, Any]) -> str:
     lines = [
         "REAL TRADING READINESS",
@@ -571,7 +588,7 @@ def daily_trading_operator() -> dict[str, Any]:
         "evidence_queue": evidence_review_queue(),
         "method_readiness": method_readiness(),
         "promotion_review": method_promotion_review(),
-        "real_trading_readiness": real_trading_readiness(),
+        "real_trading_readiness": file_based_real_trading_readiness(),
         "execution_allowed": False,
         "trading_allowed": False,
         "next_action": "Continue paper testing; review promotion candidates and keep real trading locked.",

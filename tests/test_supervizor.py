@@ -8,7 +8,7 @@ from ai_os.supervizor import (
     real_trading_readiness, render_daily_trading_operator,
     render_evidence_review_queue, render_live_trading_focus,
     render_method_promotion_review, render_method_readiness,
-    render_real_trading_readiness, render_supervizor_snapshot,
+    file_based_real_trading_readiness, render_real_trading_readiness, render_supervizor_snapshot,
     render_trading_focus, score_with_price_path_preview, trading_focus,
 )
 
@@ -195,6 +195,33 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertTrue(checks["funding_and_risk_limits"]["passed"])
         self.assertFalse(report["ready_for_real_trading"])
         self.assertFalse(report["execution_allowed"])
+
+
+    def test_file_based_real_trading_readiness_reads_local_gate_files(self):
+        import json
+        from pathlib import Path
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config_dir = home / ".ai-os"
+            config_dir.mkdir()
+            (config_dir / "broker-tools.json").write_text(json.dumps({"tools": [{"name": "get_quote", "description": "market price"}]}))
+            (config_dir / "risk-limits.json").write_text(json.dumps({"limits": {
+                "starting_capital_usd": 100,
+                "max_daily_loss_usd": 10,
+                "max_weekly_loss_usd": 25,
+                "max_position_size_usd": 20,
+                "max_open_positions": 1,
+                "max_trades_per_day": 2,
+                "cooldown_after_loss_minutes": 60,
+                "kill_switch_trigger": "Stop for day after max daily loss.",
+            }}))
+            with patch("ai_os.broker_tools.Path.home", return_value=home), patch("ai_os.risk_limits.Path.home", return_value=home):
+                report = file_based_real_trading_readiness()
+        checks = {check["name"]: check for check in report["checks"]}
+        self.assertTrue(checks["broker_tool_classification"]["passed"])
+        self.assertTrue(checks["funding_and_risk_limits"]["passed"])
+        self.assertFalse(report["ready_for_real_trading"])
 
     def test_daily_trading_operator_combines_safe_sections(self):
         report = daily_trading_operator()
