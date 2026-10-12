@@ -1,0 +1,23 @@
+import unittest
+
+from ai_os.m3 import build_m3_workflow, render_m3_workflow
+
+
+class M3WorkflowTests(unittest.TestCase):
+    def test_workflow_creates_visible_asset_order(self):
+        workflow = build_m3_workflow("GTA footage folder", "one short clip")
+        self.assertEqual(workflow["source"], "GTA footage folder")
+        self.assertEqual(workflow["target"], "one short clip")
+        self.assertIn("Log proof", "\n".join(workflow["steps"]))
+        self.assertIn("next M3 task", "\n".join(workflow["proof_required"]))
+
+    def test_render_includes_execution_and_handoff(self):
+        rendered = render_m3_workflow(build_m3_workflow())
+        self.assertIn("M3 DAILY CONTENT WORKFLOW", rendered)
+        self.assertIn("EXECUTION ORDER", rendered)
+        self.assertIn("PROOF REQUIRED", rendered)
+        self.assertIn("HANDOFF RULE", rendered)
+
+
+if __name__ == "__main__":
+    unittest.main()

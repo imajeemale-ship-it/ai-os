@@ -9,6 +9,7 @@ from ai_os.bootstrap import bootstrap
 from ai_os.chief import chief_of_staff_report, render_chief_of_staff, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
+from ai_os.m3 import build_m3_workflow, render_m3_workflow
 from ai_os.planner import Planner
 from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_proposals
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
@@ -41,6 +42,9 @@ def parser() -> argparse.ArgumentParser:
     daily.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
     cycle = commands.add_parser("daily-cycle", help="Generate a daily brief and optional local model proposal")
     cycle.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
+    m3 = commands.add_parser("m3-workflow", help="Show the M3 daily content workflow")
+    m3.add_argument("--source", default="Rico GTA footage")
+    m3.add_argument("--target", default="one visible M3 asset")
     commands.add_parser("proposals", help="List pending model proposals for review")
     commands.add_parser("provider-status", help="Check local model configuration and Ollama availability")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
@@ -118,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 rendered, _ = render_cycle(store, provider)
                 print(rendered)
+        elif args.command == "m3-workflow":
+            print(render_m3_workflow(build_m3_workflow(args.source, args.target)))
         elif args.command == "proposals":
             _print(pending_model_proposals(store))
         elif args.command == "provider-status":
