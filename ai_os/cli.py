@@ -108,6 +108,7 @@ def parser() -> argparse.ArgumentParser:
     risk_validate.add_argument("--file", required=True)
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     real.add_argument("--broker-tools", help="JSON file with broker tools to classify")
+    real.add_argument("--risk-limits", help="JSON file with risk limits to validate")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
@@ -247,7 +248,8 @@ def main(argv: list[str] | None = None) -> int:
             _print(validate_risk_limits(load_risk_limits(args.file)))
         elif args.command == "trading-real-readiness":
             broker_tools = load_broker_tool_inventory(args.broker_tools) if args.broker_tools else None
-            print(render_real_trading_readiness(real_trading_readiness(broker_tools)))
+            risk_limits = load_risk_limits(args.risk_limits) if args.risk_limits else None
+            print(render_real_trading_readiness(real_trading_readiness(broker_tools, risk_limits)))
         elif args.command == "trading-focus":
             print(render_trading_focus(trading_focus(args.report)))
         elif args.command == "supervizor-status":

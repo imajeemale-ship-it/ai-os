@@ -156,7 +156,7 @@ Create the local starter inventory, then classify it:
 ```bash
 python3 -m ai_os broker-inventory-init
 python3 -m ai_os broker-classify --file ~/.ai-os/broker-tools.json
-python3 -m ai_os trading-real-readiness --broker-tools ~/.ai-os/broker-tools.json
+python3 -m ai_os trading-real-readiness --broker-tools ~/.ai-os/broker-tools.json --risk-limits ~/.ai-os/risk-limits.json
 ```
 
 The repo also includes an example inventory:

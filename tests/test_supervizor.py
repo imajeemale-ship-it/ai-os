@@ -178,6 +178,24 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertFalse(report["execution_allowed"])
 
 
+
+    def test_real_trading_readiness_can_accept_valid_risk_limits_without_unlocking(self):
+        limits = {
+            "starting_capital_usd": 100,
+            "max_daily_loss_usd": 10,
+            "max_weekly_loss_usd": 25,
+            "max_position_size_usd": 20,
+            "max_open_positions": 1,
+            "max_trades_per_day": 2,
+            "cooldown_after_loss_minutes": 60,
+            "kill_switch_trigger": "Stop for the day after max daily loss.",
+        }
+        report = real_trading_readiness(risk_limits=limits)
+        checks = {check["name"]: check for check in report["checks"]}
+        self.assertTrue(checks["funding_and_risk_limits"]["passed"])
+        self.assertFalse(report["ready_for_real_trading"])
+        self.assertFalse(report["execution_allowed"])
+
     def test_daily_trading_operator_combines_safe_sections(self):
         report = daily_trading_operator()
         rendered = render_daily_trading_operator(report)
