@@ -1,6 +1,9 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from ai_os.broker_tools import classify_broker_tool, classify_broker_tools, render_broker_tool_classification
+from ai_os.broker_tools import classify_broker_tool, classify_broker_tools, load_broker_tool_inventory, render_broker_tool_classification
 
 
 class BrokerToolClassificationTests(unittest.TestCase):
@@ -31,6 +34,19 @@ class BrokerToolClassificationTests(unittest.TestCase):
         self.assertTrue(report["classification_complete"])
         self.assertEqual(report["execution_or_money_movement_count"], 1)
         self.assertFalse(report["trading_allowed"])
+
+    def test_loads_inventory_from_json_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker_tools.json"
+            path.write_text(json.dumps({"tools": [{"name": "get_quote", "description": "market price"}]}))
+            self.assertEqual(load_broker_tool_inventory(path), [{"name": "get_quote", "description": "market price"}])
+
+    def test_inventory_requires_named_tool_objects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker_tools.json"
+            path.write_text(json.dumps({"tools": [{"description": "missing name"}]}))
+            with self.assertRaises(ValueError):
+                load_broker_tool_inventory(path)
 
 
 if __name__ == "__main__":

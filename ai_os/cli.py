@@ -6,7 +6,7 @@ import json
 import sys
 from typing import Any
 from ai_os.bootstrap import bootstrap
-from ai_os.broker_tools import classify_broker_tools, render_broker_tool_classification
+from ai_os.broker_tools import classify_broker_tools, load_broker_tool_inventory, render_broker_tool_classification
 from ai_os.chief import chief_of_staff_report, render_chief_of_staff, render_priority_reasoning, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
@@ -91,7 +91,9 @@ def parser() -> argparse.ArgumentParser:
     daily_trading.add_argument("--save", action="store_true")
     broker = commands.add_parser("broker-classify", help="Classify broker tool names without enabling trading")
     broker.add_argument("tool", nargs="*", help="Tool name, optionally name:description")
+    broker.add_argument("--file", help="JSON file with a tools list")
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
+    real.add_argument("--broker-tools", help="JSON file with broker tools to classify")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
@@ -208,13 +210,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(render_daily_trading_operator(daily_trading_operator()))
         elif args.command == "broker-classify":
-            tools = []
+            tools = load_broker_tool_inventory(args.file) if args.file else []
             for item in args.tool:
                 name, _, description = item.partition(":")
                 tools.append({"name": name, "description": description})
             print(render_broker_tool_classification(classify_broker_tools(tools)))
         elif args.command == "trading-real-readiness":
-            print(render_real_trading_readiness(real_trading_readiness()))
+            broker_tools = load_broker_tool_inventory(args.broker_tools) if args.broker_tools else None
+            print(render_real_trading_readiness(real_trading_readiness(broker_tools)))
         elif args.command == "trading-focus":
             print(render_trading_focus(trading_focus(args.report)))
         elif args.command == "supervizor-status":

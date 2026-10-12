@@ -1,10 +1,32 @@
 """Fail-closed broker tool classification for future live integrations."""
 
 from __future__ import annotations
+import json
+from pathlib import Path
 from typing import Any
 
 READ_ONLY_HINTS = ("quote", "price", "market", "position", "portfolio", "balance", "account", "history", "order_status")
 EXECUTION_HINTS = ("buy", "sell", "order", "trade", "execute", "cancel", "replace", "deposit", "withdraw", "transfer")
+
+
+def load_broker_tool_inventory(path: str | Path) -> list[dict[str, str]]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        payload = payload.get("tools", [])
+    if not isinstance(payload, list):
+        raise ValueError("Broker tool inventory must be a list or an object with a tools list")
+    tools: list[dict[str, str]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("Every broker tool entry must be an object")
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Every broker tool entry needs a non-empty name")
+        description = item.get("description", "")
+        if not isinstance(description, str):
+            raise ValueError("Broker tool descriptions must be strings")
+        tools.append({"name": name.strip(), "description": description.strip()})
+    return tools
 
 
 def classify_broker_tool(name: str, description: str = "") -> dict[str, Any]:
@@ -30,6 +52,26 @@ def classify_broker_tool(name: str, description: str = "") -> dict[str, Any]:
         "allowed_for_live_trading": allowed,
         "matched_hints": matched_execution or matched_read,
     }
+
+
+def load_broker_tool_inventory(path: str | Path) -> list[dict[str, str]]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        payload = payload.get("tools", [])
+    if not isinstance(payload, list):
+        raise ValueError("Broker tool inventory must be a list or an object with a tools list")
+    tools: list[dict[str, str]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("Every broker tool entry must be an object")
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Every broker tool entry needs a non-empty name")
+        description = item.get("description", "")
+        if not isinstance(description, str):
+            raise ValueError("Broker tool descriptions must be strings")
+        tools.append({"name": name.strip(), "description": description.strip()})
+    return tools
 
 
 def classify_broker_tools(tools: list[dict[str, str]]) -> dict[str, Any]:
