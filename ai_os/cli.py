@@ -19,6 +19,7 @@ from ai_os.scheduler import (
 )
 from ai_os.store import AIOS
 from ai_os.supervizor import read_supervizor_snapshot
+from ai_os.workers import assign_next, render_assignment
 
 
 def _print(data: Any) -> None:
@@ -34,6 +35,8 @@ def parser() -> argparse.ArgumentParser:
     chief = commands.add_parser("chief-of-staff", help="Run Johnny 5 Chief of Staff review")
     chief.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/chief-of-staff/")
     chief.add_argument("--repo", action="append", default=[], help="Repository path to inspect; may be repeated")
+    assign = commands.add_parser("assign-next", help="Route Johnny 5 next action to the right worker")
+    assign.add_argument("--repo", action="append", default=[], help="Repository path to inspect; may be repeated")
     daily = commands.add_parser("daily-brief", help="Generate a local Markdown daily brief")
     daily.add_argument("--save", action="store_true", help="Save it under ~/.ai-os/briefs/")
     cycle = commands.add_parser("daily-cycle", help="Generate a daily brief and optional local model proposal")
@@ -100,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_chief_of_staff_report(store, repo_paths))})
             else:
                 print(render_chief_of_staff(chief_of_staff_report(store, repo_paths)))
+        elif args.command == "assign-next":
+            print(render_assignment(assign_next(store, args.repo or None)))
         elif args.command == "daily-brief":
             if args.save:
                 _print({"saved_to": str(save_daily_brief(store))})
