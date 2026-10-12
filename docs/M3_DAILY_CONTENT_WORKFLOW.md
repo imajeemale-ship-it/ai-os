@@ -35,3 +35,17 @@ python3 -m ai_os m3-proof --asset "clip-001.mp4" --hook "When the getaway goes w
 ```
 
 This writes an `m3.proof_logged` event into AI-OS so Johnny 5 can review actual progress instead of relying on memory.
+
+## Source Discovery
+
+Find local Rico, M3, or GTA video sources:
+
+```bash
+python3 -m ai_os m3-sources --path ~/Downloads --path ~/Desktop
+```
+
+Current strong source candidate:
+
+```text
+/Users/unagidon/Downloads/Rico_vs_THE_WORLD_KD_Cut_2_COMPLETE.mp4
+```

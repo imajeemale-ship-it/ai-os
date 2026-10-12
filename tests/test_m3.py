@@ -1,6 +1,6 @@
 import unittest
 
-from ai_os.m3 import build_m3_proof, build_m3_workflow, render_m3_proof, render_m3_workflow
+from ai_os.m3 import build_m3_proof, build_m3_workflow, render_m3_proof, render_m3_sources, render_m3_workflow, scan_m3_sources
 
 
 class M3WorkflowTests(unittest.TestCase):
@@ -28,6 +28,19 @@ class M3WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_m3_proof("", "hook", "next")
 
+
+
+    def test_scan_m3_sources_finds_keyword_videos(self):
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            root = __import__("pathlib").Path(directory)
+            keep = root / "Rico_clip.mp4"
+            keep.write_bytes(b"video")
+            skip = root / "random.txt"
+            skip.write_text("no")
+            candidates = scan_m3_sources([str(root)])
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["name"], "Rico_clip.mp4")
+        self.assertIn("M3 SOURCE CANDIDATES", render_m3_sources(candidates))
 
 if __name__ == "__main__":
     unittest.main()

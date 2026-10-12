@@ -9,7 +9,7 @@ from ai_os.bootstrap import bootstrap
 from ai_os.chief import chief_of_staff_report, render_chief_of_staff, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
-from ai_os.m3 import build_m3_proof, build_m3_workflow, render_m3_proof, render_m3_workflow
+from ai_os.m3 import build_m3_proof, build_m3_workflow, render_m3_proof, render_m3_sources, render_m3_workflow, scan_m3_sources
 from ai_os.planner import Planner
 from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_proposals
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
@@ -45,6 +45,8 @@ def parser() -> argparse.ArgumentParser:
     m3 = commands.add_parser("m3-workflow", help="Show the M3 daily content workflow")
     m3.add_argument("--source", default="Rico GTA footage")
     m3.add_argument("--target", default="one visible M3 asset")
+    sources = commands.add_parser("m3-sources", help="Find local M3/Rico/GTA video sources")
+    sources.add_argument("--path", action="append", default=[], help="Folder to scan; may be repeated")
     proof = commands.add_parser("m3-proof", help="Log proof for an M3 content asset")
     proof.add_argument("--asset", required=True)
     proof.add_argument("--hook", required=True)
@@ -130,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(rendered)
         elif args.command == "m3-workflow":
             print(render_m3_workflow(build_m3_workflow(args.source, args.target)))
+        elif args.command == "m3-sources":
+            print(render_m3_sources(scan_m3_sources(args.path or None)))
         elif args.command == "m3-proof":
             proof = build_m3_proof(args.asset, args.hook, args.next_action, args.platform, args.source)
             store.record_event("m3", proof["asset"], "m3.proof_logged", proof)

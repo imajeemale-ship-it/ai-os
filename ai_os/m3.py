@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 DEFAULT_M3_STEPS = [
@@ -79,3 +80,40 @@ def render_m3_proof(proof: dict[str, Any]) -> str:
         f"Next action: {proof['next_action']}",
         "",
     ])
+
+
+def scan_m3_sources(paths: list[str] | None = None) -> list[dict[str, Any]]:
+    roots = [Path(p).expanduser() for p in (paths or ["~/Downloads", "~/Desktop", "~/Movies"])]
+    extensions = {".mp4", ".mov", ".mkv", ".avi", ".m4v"}
+    keywords = ("rico", "m3", "gta")
+    candidates: list[dict[str, Any]] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for file in root.rglob("*"):
+            if not file.is_file() or file.suffix.lower() not in extensions:
+                continue
+            name = file.name.lower()
+            if not any(keyword in name for keyword in keywords):
+                continue
+            stat = file.stat()
+            candidates.append({
+                "path": str(file),
+                "name": file.name,
+                "size_mb": round(stat.st_size / (1024 * 1024), 1),
+                "modified_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
+            })
+    candidates.sort(key=lambda item: (-item["size_mb"], item["name"].lower()))
+    return candidates
+
+
+def render_m3_sources(candidates: list[dict[str, Any]]) -> str:
+    lines = ["M3 SOURCE CANDIDATES", ""]
+    if not candidates:
+        lines.append("- No Rico, M3, or GTA video files found in scanned folders.")
+    else:
+        for index, item in enumerate(candidates, start=1):
+            lines.append(f"{index}. {item['name']} ({item['size_mb']} MB)")
+            lines.append(f"   {item['path']}")
+    lines.append("")
+    return "\n".join(lines)
