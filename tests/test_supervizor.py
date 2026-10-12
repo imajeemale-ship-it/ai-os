@@ -165,6 +165,7 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertFalse(report["broker_tool_classification"]["classification_complete"])
         self.assertIn("broker_tool_classification", rendered)
         self.assertIn("human_final_approval", rendered)
+        self.assertIn("trading-policy-draft", rendered)
 
     def test_real_trading_readiness_can_accept_classified_broker_inventory_without_unlocking(self):
         report = real_trading_readiness([

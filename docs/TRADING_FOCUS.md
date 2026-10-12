@@ -167,6 +167,18 @@ python3 -m ai_os broker-classify --file examples/broker-tools.example.json
 
 The classifier is offline and fail-closed. Read-only/account tools are marked sensitive, order or money-movement tools are marked critical, and unknown tools keep classification incomplete. No classification enables trading by itself.
 
+
+## Live Policy Draft
+
+Create the locked live-trading policy draft before any real execution work:
+
+```bash
+python3 -m ai_os trading-policy-draft
+python3 -m ai_os trading-policy-draft --save
+```
+
+The draft is not approval. It lists the decisions that must be filled before live trading can even be considered: account, capital, max loss, position size, allowed methods, kill switch, and KD final approval.
+
 ## Real Trading Readiness Gate
 
 Show the locked path toward future real trading:

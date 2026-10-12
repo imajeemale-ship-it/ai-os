@@ -522,7 +522,7 @@ def real_trading_readiness(broker_tools: list[dict[str, str]] | None = None) -> 
         {"name": "paper_methods_testing", "passed": True, "detail": "Two paper-only methods are in testing."},
         {"name": "execution_flags_disabled", "passed": True, "detail": "AI-OS reports execution/trading disabled."},
         {"name": "broker_tool_classification", "passed": broker_report["classification_complete"], "detail": broker_detail},
-        {"name": "explicit_live_policy", "passed": False, "detail": "No approved live-trading policy revision exists."},
+        {"name": "explicit_live_policy", "passed": False, "detail": "A locked draft can be generated with trading-policy-draft, but no approved live policy exists."},
         {"name": "funding_and_risk_limits", "passed": False, "detail": "Live account, budget, max loss, and kill switch are not approved."},
         {"name": "human_final_approval", "passed": False, "detail": "KD has not approved live execution scope."},
     ]
@@ -531,7 +531,7 @@ def real_trading_readiness(broker_tools: list[dict[str, str]] | None = None) -> 
         "ready_for_real_trading": all(item["passed"] for item in checks),
         "checks": checks,
         "broker_tool_classification": broker_report,
-        "next_action": "Keep paper testing until broker tools, live policy, risk limits, and KD approval are complete.",
+        "next_action": "Generate or complete the locked live policy draft, then keep paper testing until risk limits and KD approval are complete.",
         "execution_allowed": False,
         "trading_allowed": False,
     }

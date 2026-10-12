@@ -21,6 +21,7 @@ from ai_os.scheduler import (
     uninstall_daily_brief, uninstall_daily_cycle, uninstall_daily_trading_operator,
 )
 from ai_os.store import AIOS
+from ai_os.trading_policy import render_live_policy_draft, save_live_policy_draft, live_policy_draft
 from ai_os.supervizor import (
     daily_trading_operator, evidence_review_queue, live_trading_focus, method_promotion_review,
     method_readiness, read_supervizor_snapshot, render_daily_trading_operator, render_evidence_review_queue,
@@ -95,6 +96,8 @@ def parser() -> argparse.ArgumentParser:
     broker = commands.add_parser("broker-classify", help="Classify broker tool names without enabling trading")
     broker.add_argument("tool", nargs="*", help="Tool name, optionally name:description")
     broker.add_argument("--file", help="JSON file with a tools list")
+    policy = commands.add_parser("trading-policy-draft", help="Create or show a locked live-trading policy draft")
+    policy.add_argument("--save", action="store_true")
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     real.add_argument("--broker-tools", help="JSON file with broker tools to classify")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
@@ -220,6 +223,11 @@ def main(argv: list[str] | None = None) -> int:
                 name, _, description = item.partition(":")
                 tools.append({"name": name, "description": description})
             print(render_broker_tool_classification(classify_broker_tools(tools)))
+        elif args.command == "trading-policy-draft":
+            if args.save:
+                _print({"saved_to": str(save_live_policy_draft())})
+            else:
+                print(render_live_policy_draft(live_policy_draft()))
         elif args.command == "trading-real-readiness":
             broker_tools = load_broker_tool_inventory(args.broker_tools) if args.broker_tools else None
             print(render_real_trading_readiness(real_trading_readiness(broker_tools)))
