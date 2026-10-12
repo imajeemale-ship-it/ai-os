@@ -19,7 +19,7 @@ from ai_os.scheduler import (
     install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
 )
 from ai_os.store import AIOS
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_trading_focus, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_price_path_preview, render_trading_focus, score_with_price_path_preview, trading_focus
 from ai_os.workers import assign_next, render_assignment
 
 
@@ -67,6 +67,10 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("provider-status", help="Check local model configuration and Ollama availability")
     evidence = commands.add_parser("trading-evidence", help="Show paper-only unresolved signal review queue")
     evidence.add_argument("--scoreboard", help="Path to scoreboard.jsonl")
+    preview = commands.add_parser("trading-outcome-preview", help="Preview a paper outcome from a local price path")
+    preview.add_argument("--record-index", type=int, required=True)
+    preview.add_argument("--prices", required=True)
+    preview.add_argument("--scoreboard")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
@@ -164,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
             _print(OpenAICompatibleProvider().status())
         elif args.command == "trading-evidence":
             print(render_evidence_review_queue(evidence_review_queue(args.scoreboard)))
+        elif args.command == "trading-outcome-preview":
+            print(render_price_path_preview(score_with_price_path_preview(args.record_index, args.prices, args.scoreboard)))
         elif args.command == "trading-focus":
             print(render_trading_focus(trading_focus(args.report)))
         elif args.command == "supervizor-status":

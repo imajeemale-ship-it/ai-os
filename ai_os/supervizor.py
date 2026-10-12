@@ -11,6 +11,7 @@ DEFAULT_REPORT = (
 )
 MAX_REPORT_BYTES = 1_000_000
 DEFAULT_SCOREBOARD = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_signals" / "scoreboard.jsonl"
+DEFAULT_PRICE_PATH_DIR = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_price_paths"
 
 
 def read_supervizor_snapshot(path: str | Path | None = None) -> dict[str, Any]:
@@ -237,4 +238,78 @@ def render_evidence_review_queue(queue: dict[str, Any]) -> str:
             f"- #{item['record_index']} {item['pair']} {item['side']} from {item['source']} | needs: {missing}"
         )
     lines.extend(["", "NEXT ACTION", "- Resolve one item with local price-path/outcome evidence only.", ""])
+    return "\n".join(lines)
+
+
+
+def _read_prices(path: Path) -> list[float]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(value, dict):
+        value = value.get("prices")
+    if not isinstance(value, list) or not value:
+        raise ValueError("prices JSON must be a non-empty array or object with prices")
+    return [float(item) for item in value]
+
+
+def _score_signal_status(record: dict[str, Any], prices: list[float]) -> str:
+    targets = record.get("targets") or []
+    stop_loss = record.get("stop_loss")
+    side = str(record.get("side") or "").lower()
+    if not targets or stop_loss is None or side not in {"buy", "long", "short"}:
+        return "cannot_score"
+    tp1 = float(targets[0])
+    stop = float(stop_loss)
+    for price in prices:
+        if side in {"buy", "long"}:
+            if price >= tp1:
+                return "tp1_hit"
+            if price <= stop:
+                return "stop_loss_hit"
+        else:
+            if price <= tp1:
+                return "tp1_hit"
+            if price >= stop:
+                return "stop_loss_hit"
+    return "open"
+
+
+def score_with_price_path_preview(record_index: int, prices_path: str | Path,
+                                  scoreboard_path: str | Path | None = None) -> dict[str, Any]:
+    records = read_signal_scoreboard(scoreboard_path)
+    if record_index < 0 or record_index >= len(records):
+        raise ValueError(f"record index does not exist: {record_index}")
+    price_file = Path(prices_path).expanduser()
+    prices = _read_prices(price_file)
+    record = records[record_index]
+    status = _score_signal_status(record, prices)
+    return {
+        "record_index": record_index,
+        "pair": record.get("pair") or "unknown",
+        "side": record.get("side") or "unknown",
+        "source": _safe_text(record.get("source"), 120) or "unknown",
+        "current_status": record.get("result_status") or "unknown",
+        "preview_status": status,
+        "prices_path": str(price_file),
+        "price_points": len(prices),
+        "execution_allowed": False,
+        "trading_allowed": False,
+        "write_performed": False,
+    }
+
+
+def render_price_path_preview(preview: dict[str, Any]) -> str:
+    lines = [
+        "PAPER OUTCOME PREVIEW",
+        "",
+        f"Record: #{preview['record_index']} {preview['pair']} {preview['side']}",
+        f"Source: {preview['source']}",
+        f"Current status: {preview['current_status']}",
+        f"Preview status: {preview['preview_status']}",
+        f"Price path: {preview['prices_path']}",
+        f"Price points: {preview['price_points']}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "write_performed: false",
+        "",
+    ]
     return "\n".join(lines)

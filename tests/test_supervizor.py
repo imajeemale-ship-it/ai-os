@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, score_with_price_path_preview, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -88,6 +88,19 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertFalse(queue["execution_allowed"])
         self.assertIn("JTO/USDT", rendered)
         self.assertIn("leverage_rejected", rendered)
+
+
+    def test_price_path_preview_scores_without_writing(self):
+        scoreboard = Path(self.temp.name) / "scoreboard.jsonl"
+        prices = Path(self.temp.name) / "prices.json"
+        records = [{"pair": "JTO/USDT", "side": "short", "source": "Test", "result_status": "unscored", "targets": [0.512], "stop_loss": 0.545}]
+        scoreboard.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+        prices.write_text(json.dumps({"prices": [0.55, 0.56]}), encoding="utf-8")
+        preview = score_with_price_path_preview(0, prices, scoreboard)
+        self.assertEqual(preview["preview_status"], "stop_loss_hit")
+        self.assertFalse(preview["write_performed"])
+        unchanged = json.loads(scoreboard.read_text(encoding="utf-8"))
+        self.assertEqual(unchanged["result_status"], "unscored")
 
 
 if __name__ == "__main__":
