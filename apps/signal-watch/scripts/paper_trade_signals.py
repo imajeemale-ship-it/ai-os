@@ -213,13 +213,26 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
             continue
         conviction = row["conviction_score"] if "conviction_score" in row.keys() else None
         if conviction is None:
-            conviction = watch.calculate_conviction(
-                db, row["source"], parsed, row["sent_at"], row["ticker"], entry, targets, row["stop_loss"]
-            )["conviction_score"]
-        if float(conviction) < 50:
+            conviction_result = watch.calculate_conviction(
+                db, row["source"], parsed, row["sent_at"], row["ticker"], entry, targets,
+                row["stop_loss"], market_context=market_context
+            )
+            conviction = conviction_result["conviction_score"]
+        else:
+            conviction_result = {"conviction_score": float(conviction)}
+        try:
+            consensus = watch.consensus_for_signal(db, row, watch.DEFAULT_CONSENSUS_WINDOW_MINUTES)
+        except sqlite3.OperationalError:
+            consensus = {"consensus_score": 0.0, "number_of_channels": 0,
+                         "agreeing_channels": [], "disagreeing_channels": []}
+        decision = watch.calculate_decision(
+            db, row["source"], parsed, row["sent_at"], row["ticker"], entry, targets,
+            row["stop_loss"], conviction_result, consensus, market_context,
+        )
+        if decision["decision"] == "REJECT":
             continue
         policy = watch.source_policy(row["source"])
-        note = f"paper open; conviction {float(conviction):.1f}/100; {policy['rank']} {policy['bias']}; partial exits at targets"
+        note = f"paper open; decision {decision['decision']} {decision['overall_score']:.1f}/100; conviction {float(conviction):.1f}/100; {policy['rank']} {policy['bias']}; partial exits at targets"
         events.append(PaperEvent(row["id"], "open", row["ticker"], row["source"], entry, 100, 0, note))
         if dry_run:
             continue

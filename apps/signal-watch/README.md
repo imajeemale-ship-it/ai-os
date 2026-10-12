@@ -28,6 +28,13 @@ session, and weekday. Market context contributes 15 conviction points and is sav
 with paper positions. If required context is unavailable, its score is zero and
 the paper lane refuses the trade.
 
+The Decision Engine combines conviction, consensus, market context, and historical
+channel performance into a persisted `APPROVE`, `WATCH`, or `REJECT` result with an
+overall score, paper-only position-size recommendation, maximum risk percentage,
+and explainable supporting or blocking reasons. Missing market context or failed
+paper-safety checks produce `REJECT`. These values are advisory only; no broker or
+exchange execution is performed.
+
 ## Requirements
 
 - Python 3.11+

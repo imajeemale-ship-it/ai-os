@@ -121,6 +121,14 @@ consensus 10, and freshness 5. Missing or stale context is recorded as unavailab
 and fails closed: the signal remains visible for review but cannot become a paper
 position.
 
+The Decision Engine persists one final paper-only evaluation on every signal. It
+combines conviction, consensus, market context, and channel performance and
+returns `APPROVE`, `WATCH`, or `REJECT`, with an overall score, size recommendation,
+maximum risk percentage, explanation, and explicit supporting/blocking reasons.
+Unavailable market context and failed paper-admission checks block the decision.
+The risk and size fields are recommendations for paper review only and never place
+orders.
+
 Install or refresh the scheduled paper trader:
 
 ```sh

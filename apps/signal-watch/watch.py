@@ -374,6 +374,13 @@ class SignalStore:
             "consensus_first_seen": "TEXT",
             "consensus_latest_seen": "TEXT",
             "market_context_json": "TEXT",
+            "decision": "TEXT",
+            "overall_score": "REAL",
+            "position_size_recommendation": "TEXT",
+            "maximum_risk_percent": "REAL",
+            "decision_explanation": "TEXT",
+            "blocking_reasons_json": "TEXT",
+            "supporting_reasons_json": "TEXT",
         }
         for name, definition in additions.items():
             if name not in columns:
@@ -448,13 +455,24 @@ class SignalStore:
                     market_context=row_context,
                 )
                 row_context["market_context_score"] = row_conviction["market_context_score"]
+                decision = calculate_decision(
+                    db, row["source"], row_parsed, row["sent_at"], row["ticker"],
+                    row_entry, row_targets, row["stop_loss"], row_conviction,
+                    row_consensus, row_context,
+                )
                 db.execute(
                     """UPDATE signals SET conviction_score=?, confidence_level=?,
-                    conviction_reasons_json=?, conviction_warnings_json=?,market_context_json=? WHERE id=?""",
+                    conviction_reasons_json=?, conviction_warnings_json=?,market_context_json=?,
+                    decision=?,overall_score=?,position_size_recommendation=?,maximum_risk_percent=?,
+                    decision_explanation=?,blocking_reasons_json=?,supporting_reasons_json=? WHERE id=?""",
                     (row_conviction["conviction_score"], row_conviction["confidence_level"],
                      json.dumps(row_conviction["reasons"], ensure_ascii=False),
                      json.dumps(row_conviction["warnings"], ensure_ascii=False),
-                     json.dumps(row_context, ensure_ascii=False), row["id"]),
+                     json.dumps(row_context, ensure_ascii=False), decision["decision"],
+                     decision["overall_score"], decision["position_size_recommendation"],
+                     decision["maximum_risk_percent"], decision["explanation"],
+                     json.dumps(decision["blocking_reasons"], ensure_ascii=False),
+                     json.dumps(decision["supporting_reasons"], ensure_ascii=False), row["id"]),
                 )
             return True
 
@@ -885,6 +903,92 @@ def calculate_conviction(
     }
 
 
+def calculate_decision(
+    db: sqlite3.Connection,
+    source: str,
+    parsed: dict[str, Any],
+    sent_at: str,
+    ticker: str | None,
+    entry: Any,
+    targets: list[Any],
+    stop_loss: Any,
+    conviction: dict[str, Any],
+    consensus: dict[str, Any],
+    market_context: dict[str, Any],
+) -> dict[str, Any]:
+    """Combine existing evidence into a paper-only, non-executing decision."""
+    history = _historical_channel_stats(db, source)
+    if history["closed"]:
+        history_score = (
+            min(40.0, float(history["win_rate"]) / 100 * 40)
+            + min(30.0, float(history["profit_factor"]) / 2 * 30)
+            + max(0.0, min(30.0, 15.0 + float(history["average_return"]) / 5 * 15))
+        )
+        channel_reason = (
+            f"Channel performance {history_score:.1f}/100: {float(history['win_rate']):.1f}% win rate, "
+            f"PF {float(history['profit_factor']):.2f}, average return {float(history['average_return']):+.2f}%"
+        )
+    else:
+        history_score = 50.0
+        channel_reason = "Channel performance has no settled paper history; neutral prior 50/100"
+    consensus_score = float(consensus.get("consensus_score") or 0.0)
+    market_score = float(market_context.get("market_context_score") or 0.0)
+    conviction_score = float(conviction.get("conviction_score") or 0.0)
+    overall = round(
+        max(0.0, min(100.0, conviction_score * 0.50 + consensus_score * 0.20 + market_score * 0.15 + history_score * 0.15)),
+        2,
+    )
+    blocking: list[str] = []
+    supporting = [
+        f"Conviction score {conviction_score:.1f}/100",
+        f"Consensus score {consensus_score:.1f}/100 across {int(consensus.get('number_of_channels') or 0)} channel(s)",
+        f"Market context score {market_score:.1f}/100",
+        channel_reason,
+    ]
+    if not market_context.get("available"):
+        blocking.append("Market context unavailable; decision fails closed")
+    eligibility = paper_eligibility(source, parsed, sent_at, _entry_price(entry), [
+        value for value in (_number(target) for target in targets) if value is not None
+    ], _number(stop_loss))
+    blocking.extend(eligibility["reasons"])
+    if conviction_score < 50:
+        blocking.append(f"Conviction below paper threshold ({conviction_score:.1f} < 50)")
+    if consensus_score < 50 and int(consensus.get("number_of_channels") or 0) > 1:
+        blocking.append(f"Disagreement or weak consensus ({consensus_score:.1f}/100)")
+    if market_score < 40 and market_context.get("available"):
+        blocking.append(f"Weak market context ({market_score:.1f}/100)")
+    if blocking or overall < 50:
+        decision = "REJECT"
+    elif overall >= 75:
+        decision = "APPROVE"
+    else:
+        decision = "WATCH"
+    if decision == "REJECT":
+        size = "NONE"
+        risk = 0.0
+    elif decision == "WATCH":
+        size = "SMALL"
+        risk = 0.25
+    elif overall >= 90 and conviction_score >= 85 and consensus_score >= 75 and market_score >= 70 and history_score >= 70:
+        size = "FULL"
+        risk = 1.0
+    else:
+        size = "MEDIUM"
+        risk = 0.5
+    if not blocking:
+        supporting.append("No decision blockers detected")
+    explanation = f"{decision}: overall score {overall:.1f}/100; paper-only recommendation {size} with maximum risk {risk:.2f}%"
+    return {
+        "decision": decision,
+        "overall_score": overall,
+        "position_size_recommendation": size,
+        "maximum_risk_percent": risk,
+        "explanation": explanation,
+        "blocking_reasons": blocking,
+        "supporting_reasons": supporting,
+    }
+
+
 def trade_plan_lines(source: str, parsed: dict[str, Any]) -> list[str]:
     policy = source_policy(source)
     target_pct = policy["target_pct"]
@@ -1039,6 +1143,8 @@ def format_alert(row: sqlite3.Row) -> str:
         f"Fear & Greed {market_context.get('fear_greed_index') if market_context.get('fear_greed_index') is not None else 'N/A'} · "
         f"session {market_context.get('trading_session') or 'unavailable'} · "
         f"{market_context.get('day_of_week') or 'unknown'}",
+        f"Decision: {row['decision'] or 'UNAVAILABLE'} · overall {row['overall_score'] if row['overall_score'] is not None else 'N/A'}/100 · "
+        f"size {row['position_size_recommendation'] or 'NONE'} · max risk {row['maximum_risk_percent'] if row['maximum_risk_percent'] is not None else 0}%",
         *trade_plan_lines(row["source"], parsed),
         "Status: information only · no order placed",
     ]
@@ -1050,6 +1156,16 @@ def format_alert(row: sqlite3.Row) -> str:
             lines.append("Conviction warnings: " + " | ".join(conviction_warnings))
     if row["consensus_first_seen"] and row["consensus_latest_seen"]:
         lines.append(f"Consensus window: {row['consensus_first_seen']} → {row['consensus_latest_seen']}")
+    if row["decision_explanation"]:
+        lines.append("Decision explanation: " + row["decision_explanation"])
+    if row["blocking_reasons_json"]:
+        decision_blocks = json.loads(row["blocking_reasons_json"])
+        if decision_blocks:
+            lines.append("Decision blockers: " + " | ".join(decision_blocks))
+    if row["supporting_reasons_json"]:
+        decision_support = json.loads(row["supporting_reasons_json"])
+        if decision_support:
+            lines.append("Decision support: " + " | ".join(decision_support))
     if row["source_url"]:
         lines.append(f"Source message: {row['source_url']}")
     if row["raw_text"]:

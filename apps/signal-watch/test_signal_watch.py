@@ -78,6 +78,13 @@ class SignalWatchTests(unittest.TestCase):
         self.assertIn("Conviction:", alert)
         self.assertIn("Conviction reasons:", alert)
         self.assertIn("Consensus:", alert)
+        self.assertIn("Decision:", alert)
+        self.assertIn(row["decision"], {"APPROVE", "WATCH", "REJECT"})
+        self.assertIsNotNone(row["decision_explanation"])
+        self.assertTrue(
+            json.loads(row["blocking_reasons_json"])
+            or json.loads(row["supporting_reasons_json"])
+        )
 
     def test_market_context_contributes_to_conviction_and_is_persisted(self):
         store = watch.SignalStore(
@@ -93,6 +100,40 @@ class SignalWatchTests(unittest.TestCase):
         reasons = json.loads(row["conviction_reasons_json"])
         self.assertTrue(any("Market context: BTC trend up" in reason for reason in reasons))
         self.assertIn("Market context:", watch.format_alert(row))
+
+    def test_decision_engine_returns_complete_approve_object(self):
+        with self.db.connect() as db:
+            signal = self.make_signal(source="Wallstreet Queen Official®", sent_at=watch.utc_now())
+            decision = watch.calculate_decision(
+                db, signal.source, signal.parsed, signal.sent_at, "BTC",
+                signal.parsed["entry"], signal.parsed["targets"], signal.parsed["stop_loss"],
+                {"conviction_score": 90.0},
+                {"consensus_score": 100.0, "number_of_channels": 2,
+                 "agreeing_channels": ["A", "B"], "disagreeing_channels": []},
+                self.market_context() | {"market_context_score": 90.0},
+            )
+        self.assertEqual(decision["decision"], "APPROVE")
+        self.assertEqual(decision["position_size_recommendation"], "MEDIUM")
+        self.assertGreater(decision["overall_score"], 75)
+        self.assertEqual(decision["maximum_risk_percent"], 0.5)
+        self.assertTrue(decision["supporting_reasons"])
+        self.assertEqual(decision["blocking_reasons"], [])
+
+    def test_decision_engine_rejects_without_market_context(self):
+        with self.db.connect() as db:
+            signal = self.make_signal(source="Wallstreet Queen Official®", sent_at=watch.utc_now())
+            decision = watch.calculate_decision(
+                db, signal.source, signal.parsed, signal.sent_at, "BTC",
+                signal.parsed["entry"], signal.parsed["targets"], signal.parsed["stop_loss"],
+                {"conviction_score": 90.0},
+                {"consensus_score": 100.0, "number_of_channels": 2,
+                 "agreeing_channels": ["A", "B"], "disagreeing_channels": []},
+                watch.unavailable_market_context("test outage"),
+            )
+        self.assertEqual(decision["decision"], "REJECT")
+        self.assertEqual(decision["position_size_recommendation"], "NONE")
+        self.assertEqual(decision["maximum_risk_percent"], 0.0)
+        self.assertTrue(any("Market context unavailable" in reason for reason in decision["blocking_reasons"]))
 
     def test_market_context_fails_closed_when_unavailable(self):
         result = watch.score_market_context({"side": "buy"}, watch.unavailable_market_context("test outage"))
