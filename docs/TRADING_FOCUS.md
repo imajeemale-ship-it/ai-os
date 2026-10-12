@@ -110,3 +110,18 @@ After adding two paper-only method templates and reviewing queue items locally:
 - Promotion engine recommendation: candidate_for_validation
 - Remaining queue focuses on Rejected Leverage Signal Filter
 - Execution/trading remain disabled.
+
+## End-to-End Paper Review Result
+
+Paper-only review completed locally:
+
+- Scoreboard unresolved records: 0
+- Signal outcomes: `cannot_score: 3`, `stop_loss_hit: 2`
+- Method records: 3
+- Method outcomes: 6
+- Spot Long Risk-Complete Signal Template: candidate_for_validation
+- Rejected Leverage Signal Filter: candidate_for_validation
+- Method backtest queue: 0 items
+- Execution/trading remain disabled.
+
+Next decision: review promotion recommendations and decide whether any method should move from `untested` to `testing`. No automatic promotion is performed.

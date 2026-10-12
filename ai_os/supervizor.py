@@ -410,11 +410,21 @@ def method_readiness(vault_path: str | Path | None = None,
         "by_status": by_status,
         "by_source_type": by_source,
         "blockers": blockers or ["None for paper-only review."],
-        "next_action": "Add or refine at least two concrete, testable methods before expecting a backtest queue." if len(methods) < 3 else "Record method outcomes against resolved signals.",
+        "next_action": _method_next_action(len(methods), len(outcomes), blockers),
         "execution_allowed": False,
         "trading_allowed": False,
     }
 
+
+
+def _method_next_action(method_count: int, outcome_count: int, blockers: list[str]) -> str:
+    if method_count < 3:
+        return "Add or refine at least two concrete, testable methods before expecting a backtest queue."
+    if outcome_count == 0:
+        return "Record method outcomes against resolved signals."
+    if any("All methods are untested" in blocker for blocker in blockers):
+        return "Review promotion recommendations and decide whether any method should move from untested to testing."
+    return "Continue paper-only method review and keep execution disabled."
 
 def render_method_readiness(report: dict[str, Any]) -> str:
     lines = [
