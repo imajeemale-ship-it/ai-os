@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import read_supervizor_snapshot, render_supervizor_snapshot
+from ai_os.supervizor import read_supervizor_snapshot, render_supervizor_snapshot, render_trading_focus, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -62,6 +62,17 @@ class SupervizorSnapshotTests(unittest.TestCase):
         result = read_supervizor_snapshot(self.path)
         self.assertEqual(result["status"], "unavailable")
         self.assertEqual(result["reason"], "invalid_report_shape")
+
+
+    def test_trading_focus_stays_paper_only_and_surfaces_evidence_blockers(self):
+        self.report()
+        focus = trading_focus(self.path)
+        rendered = render_trading_focus(focus)
+        self.assertFalse(focus["trading_allowed"])
+        self.assertFalse(focus["execution_allowed"])
+        self.assertIn("4 unresolved signal", "\n".join(focus["blockers"]))
+        self.assertIn("paper_only_watch_only", rendered)
+        self.assertIn("NEXT PAPER-TRADING ACTION", rendered)
 
 
 if __name__ == "__main__":

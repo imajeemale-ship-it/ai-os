@@ -99,3 +99,64 @@ def render_supervizor_snapshot(snapshot: dict[str, Any]) -> str:
         lines.append(f"reason: {snapshot['reason']}")
     lines.append("source_access: local read-only file; Supervizor was not executed")
     return "\n".join(lines)
+
+
+
+def trading_focus(path: str | Path | None = None) -> dict[str, Any]:
+    snapshot = read_supervizor_snapshot(path)
+    evidence = snapshot.get("evidence") or {}
+    blockers: list[str] = []
+    if snapshot.get("status") != "read_only_pass":
+        blockers.append(f"Supervizor snapshot status is {snapshot.get('status')}.")
+    if snapshot.get("execution_allowed") is not False:
+        blockers.append("Execution flag is not explicitly false.")
+    if snapshot.get("trading_allowed") is not False:
+        blockers.append("Trading flag is not explicitly false.")
+    if snapshot.get("account_mutation_allowed") is not False:
+        blockers.append("Account mutation flag is not explicitly false.")
+    unresolved = evidence.get("unresolved_signals_count", 0)
+    outcomes = evidence.get("outcomes_count", 0)
+    backtests = evidence.get("backtest_queue_count", 0)
+    if unresolved:
+        blockers.append(f"{unresolved} unresolved signal(s) need review before trusting performance.")
+    if outcomes == 0:
+        blockers.append("No resolved outcomes logged yet; strategy quality is unproven.")
+    if backtests == 0:
+        blockers.append("Backtest queue is empty; no method has been stress-tested yet.")
+
+    if snapshot.get("next_move"):
+        next_action = snapshot["next_move"]
+    elif blockers:
+        next_action = "Resolve the first blocker without enabling live trading."
+    else:
+        next_action = "Continue paper-only scoring and produce the next operator report."
+
+    return {
+        "mode": "paper_only_watch_only",
+        "status": snapshot.get("status"),
+        "trading_allowed": False,
+        "execution_allowed": False,
+        "account_mutation_allowed": False,
+        "ceo_score": snapshot.get("ceo_score"),
+        "blockers": blockers or ["None for paper-only review."],
+        "next_action": next_action,
+        "source": snapshot.get("source"),
+    }
+
+
+def render_trading_focus(report: dict[str, Any]) -> str:
+    lines = [
+        "TRADING FOCUS",
+        "",
+        f"Mode: {report['mode']}",
+        f"Status: {report.get('status')}",
+        f"CEO score: {report.get('ceo_score') if report.get('ceo_score') is not None else 'N/A'}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "account_mutation_allowed: false",
+        "",
+        "BLOCKERS",
+    ]
+    lines.extend(f"- {item}" for item in report["blockers"])
+    lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)

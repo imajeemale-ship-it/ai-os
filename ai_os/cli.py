@@ -19,7 +19,7 @@ from ai_os.scheduler import (
     install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
 )
 from ai_os.store import AIOS
-from ai_os.supervizor import read_supervizor_snapshot
+from ai_os.supervizor import read_supervizor_snapshot, render_trading_focus, trading_focus
 from ai_os.workers import assign_next, render_assignment
 
 
@@ -65,6 +65,8 @@ def parser() -> argparse.ArgumentParser:
     proof.add_argument("--source", default="Rico GTA footage")
     commands.add_parser("proposals", help="List pending model proposals for review")
     commands.add_parser("provider-status", help="Check local model configuration and Ollama availability")
+    trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
+    trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
     supervizor_status.add_argument("--report", help="Path to latest_daily_operator_run.json")
     schedule = commands.add_parser("schedule").add_subparsers(dest="action", required=True)
@@ -158,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
             _print(pending_model_proposals(store))
         elif args.command == "provider-status":
             _print(OpenAICompatibleProvider().status())
+        elif args.command == "trading-focus":
+            print(render_trading_focus(trading_focus(args.report)))
         elif args.command == "supervizor-status":
             snapshot = read_supervizor_snapshot(args.report)
             _print(snapshot)
