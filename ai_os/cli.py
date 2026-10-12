@@ -6,7 +6,7 @@ import json
 import sys
 from typing import Any
 from ai_os.bootstrap import bootstrap
-from ai_os.broker_tools import classify_broker_tools, load_broker_tool_inventory, render_broker_tool_classification
+from ai_os.broker_tools import classify_broker_tools, load_broker_tool_inventory, render_broker_tool_classification, write_broker_tool_inventory
 from ai_os.chief import chief_of_staff_report, render_chief_of_staff, render_priority_reasoning, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
@@ -89,6 +89,9 @@ def parser() -> argparse.ArgumentParser:
     preview.add_argument("--scoreboard")
     daily_trading = commands.add_parser("trading-daily-operator", help="Run the paper trading daily operator report")
     daily_trading.add_argument("--save", action="store_true")
+    broker_init = commands.add_parser("broker-inventory-init", help="Create a local starter broker tool inventory")
+    broker_init.add_argument("--path", help="Destination JSON path; defaults to ~/.ai-os/broker-tools.json")
+    broker_init.add_argument("--overwrite", action="store_true")
     broker = commands.add_parser("broker-classify", help="Classify broker tool names without enabling trading")
     broker.add_argument("tool", nargs="*", help="Tool name, optionally name:description")
     broker.add_argument("--file", help="JSON file with a tools list")
@@ -209,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_daily_trading_operator())})
             else:
                 print(render_daily_trading_operator(daily_trading_operator()))
+        elif args.command == "broker-inventory-init":
+            _print(write_broker_tool_inventory(args.path, args.overwrite))
         elif args.command == "broker-classify":
             tools = load_broker_tool_inventory(args.file) if args.file else []
             for item in args.tool:

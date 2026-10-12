@@ -151,12 +151,18 @@ Classify future broker/RPC tools before any live integration work:
 python3 -m ai_os broker-classify get_quote:market_price place_order:buy_or_sell cancel_order:cancel_open_order
 ```
 
-Or classify a saved inventory file:
+Create the local starter inventory, then classify it:
+
+```bash
+python3 -m ai_os broker-inventory-init
+python3 -m ai_os broker-classify --file ~/.ai-os/broker-tools.json
+python3 -m ai_os trading-real-readiness --broker-tools ~/.ai-os/broker-tools.json
+```
+
+The repo also includes an example inventory:
 
 ```bash
 python3 -m ai_os broker-classify --file examples/broker-tools.example.json
-python3 -m ai_os broker-classify --file ~/.ai-os/broker-tools.json
-python3 -m ai_os trading-real-readiness --broker-tools ~/.ai-os/broker-tools.json
 ```
 
 The classifier is offline and fail-closed. Read-only/account tools are marked sensitive, order or money-movement tools are marked critical, and unknown tools keep classification incomplete. No classification enables trading by itself.
