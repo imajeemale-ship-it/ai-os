@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from ai_os.supervizor import read_supervizor_snapshot, render_supervizor_snapshot, render_trading_focus, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_supervizor_snapshot, render_trading_focus, trading_focus
 
 
 class SupervizorSnapshotTests(unittest.TestCase):
@@ -73,6 +73,21 @@ class SupervizorSnapshotTests(unittest.TestCase):
         self.assertIn("4 unresolved signal", "\n".join(focus["blockers"]))
         self.assertIn("paper_only_watch_only", rendered)
         self.assertIn("NEXT PAPER-TRADING ACTION", rendered)
+
+
+    def test_evidence_review_queue_lists_unresolved_signals_without_execution(self):
+        scoreboard = Path(self.temp.name) / "scoreboard.jsonl"
+        records = [
+            {"pair": "JTO/USDT", "side": "short", "source": "Test", "result_status": "unscored", "entry_low": 1, "targets": [0.9], "stop_loss": 1.1, "leverage_detected": True},
+            {"pair": "XRP/USDT", "side": "buy", "source": "Test", "result_status": "tp1_hit"},
+        ]
+        scoreboard.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+        queue = evidence_review_queue(scoreboard)
+        rendered = render_evidence_review_queue(queue)
+        self.assertEqual(queue["unresolved_count"], 1)
+        self.assertFalse(queue["execution_allowed"])
+        self.assertIn("JTO/USDT", rendered)
+        self.assertIn("leverage_rejected", rendered)
 
 
 if __name__ == "__main__":

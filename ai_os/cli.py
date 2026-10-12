@@ -19,7 +19,7 @@ from ai_os.scheduler import (
     install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
 )
 from ai_os.store import AIOS
-from ai_os.supervizor import read_supervizor_snapshot, render_trading_focus, trading_focus
+from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_trading_focus, trading_focus
 from ai_os.workers import assign_next, render_assignment
 
 
@@ -65,6 +65,8 @@ def parser() -> argparse.ArgumentParser:
     proof.add_argument("--source", default="Rico GTA footage")
     commands.add_parser("proposals", help="List pending model proposals for review")
     commands.add_parser("provider-status", help="Check local model configuration and Ollama availability")
+    evidence = commands.add_parser("trading-evidence", help="Show paper-only unresolved signal review queue")
+    evidence.add_argument("--scoreboard", help="Path to scoreboard.jsonl")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
     supervizor_status = commands.add_parser("supervizor-status", help="Read Supervizor's local operator snapshot")
@@ -160,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
             _print(pending_model_proposals(store))
         elif args.command == "provider-status":
             _print(OpenAICompatibleProvider().status())
+        elif args.command == "trading-evidence":
+            print(render_evidence_review_queue(evidence_review_queue(args.scoreboard)))
         elif args.command == "trading-focus":
             print(render_trading_focus(trading_focus(args.report)))
         elif args.command == "supervizor-status":

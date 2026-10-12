@@ -10,6 +10,7 @@ DEFAULT_REPORT = (
     / "supervizor_reports" / "latest_daily_operator_run.json"
 )
 MAX_REPORT_BYTES = 1_000_000
+DEFAULT_SCOREBOARD = Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata" / "supervizor_signals" / "scoreboard.jsonl"
 
 
 def read_supervizor_snapshot(path: str | Path | None = None) -> dict[str, Any]:
@@ -159,4 +160,81 @@ def render_trading_focus(report: dict[str, Any]) -> str:
     ]
     lines.extend(f"- {item}" for item in report["blockers"])
     lines.extend(["", "NEXT PAPER-TRADING ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)
+
+
+
+def read_signal_scoreboard(path: str | Path | None = None) -> list[dict[str, Any]]:
+    scoreboard = Path(path or DEFAULT_SCOREBOARD).expanduser()
+    if not scoreboard.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(scoreboard.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{scoreboard}:{line_number}: invalid JSONL") from error
+        if not isinstance(value, dict):
+            raise ValueError(f"{scoreboard}:{line_number}: expected object")
+        records.append(value)
+    return records
+
+
+def evidence_review_queue(path: str | Path | None = None) -> dict[str, Any]:
+    records = read_signal_scoreboard(path)
+    items = []
+    for index, record in enumerate(records):
+        if record.get("result_status") != "unscored":
+            continue
+        missing = []
+        if not record.get("entry_low") and not isinstance(record.get("entry"), dict):
+            missing.append("entry")
+        if not record.get("targets"):
+            missing.append("targets")
+        if record.get("stop_loss") is None:
+            missing.append("stop_loss")
+        if record.get("leverage_detected"):
+            missing.append("leverage_rejected")
+        items.append({
+            "record_index": index,
+            "pair": record.get("pair") or "unknown",
+            "side": record.get("side") or "unknown",
+            "source": _safe_text(record.get("source"), 120) or "unknown",
+            "missing": missing,
+            "approved_for_paper_trade": bool(record.get("approved_for_paper_trade")),
+            "execution_allowed": False,
+            "recommended_review": "collect price path/outcome evidence only; do not trade",
+        })
+    return {
+        "mode": "paper_only_watch_only",
+        "total_records": len(records),
+        "unresolved_count": len(items),
+        "items": items,
+        "execution_allowed": False,
+        "trading_allowed": False,
+    }
+
+
+def render_evidence_review_queue(queue: dict[str, Any]) -> str:
+    lines = [
+        "PAPER TRADING EVIDENCE REVIEW QUEUE",
+        "",
+        f"Mode: {queue['mode']}",
+        f"Total records: {queue['total_records']}",
+        f"Unresolved records: {queue['unresolved_count']}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "ITEMS",
+    ]
+    if not queue["items"]:
+        lines.append("- No unresolved signal records.")
+    for item in queue["items"]:
+        missing = ", ".join(item["missing"]) if item["missing"] else "outcome"
+        lines.append(
+            f"- #{item['record_index']} {item['pair']} {item['side']} from {item['source']} | needs: {missing}"
+        )
+    lines.extend(["", "NEXT ACTION", "- Resolve one item with local price-path/outcome evidence only.", ""])
     return "\n".join(lines)
