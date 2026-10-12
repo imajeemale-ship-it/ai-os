@@ -25,3 +25,13 @@ python3 -m ai_os m3-workflow
 ## Handoff Rule
 
 If footage access, platform login, or final taste call is required, escalate to KD. Otherwise continue autonomously.
+
+## Proof Logging
+
+Record proof after every M3 action:
+
+```bash
+python3 -m ai_os m3-proof --asset "clip-001.mp4" --hook "When the getaway goes wrong" --next-action "Pick tomorrow's clip" --platform local
+```
+
+This writes an `m3.proof_logged` event into AI-OS so Johnny 5 can review actual progress instead of relying on memory.

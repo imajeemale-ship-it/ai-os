@@ -47,3 +47,35 @@ def render_m3_workflow(workflow: dict[str, Any]) -> str:
     lines.extend(f"- {item}" for item in workflow["proof_required"])
     lines.extend(["", "HANDOFF RULE", f"- {workflow['handoff']}", ""])
     return "\n".join(lines)
+
+
+def build_m3_proof(asset: str, hook: str, next_action: str,
+                   platform: str = "local", source: str = "Rico GTA footage") -> dict[str, Any]:
+    if not asset.strip():
+        raise ValueError("asset is required")
+    if not hook.strip():
+        raise ValueError("hook is required")
+    if not next_action.strip():
+        raise ValueError("next_action is required")
+    return {
+        "logged_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "source": source.strip(),
+        "platform": platform.strip() or "local",
+        "asset": asset.strip(),
+        "hook": hook.strip(),
+        "next_action": next_action.strip(),
+        "status": "proof_logged",
+    }
+
+
+def render_m3_proof(proof: dict[str, Any]) -> str:
+    return "\n".join([
+        "M3 PROOF LOGGED",
+        "",
+        f"Source: {proof['source']}",
+        f"Platform: {proof['platform']}",
+        f"Asset: {proof['asset']}",
+        f"Hook: {proof['hook']}",
+        f"Next action: {proof['next_action']}",
+        "",
+    ])

@@ -1,6 +1,6 @@
 import unittest
 
-from ai_os.m3 import build_m3_workflow, render_m3_workflow
+from ai_os.m3 import build_m3_proof, build_m3_workflow, render_m3_proof, render_m3_workflow
 
 
 class M3WorkflowTests(unittest.TestCase):
@@ -17,6 +17,16 @@ class M3WorkflowTests(unittest.TestCase):
         self.assertIn("EXECUTION ORDER", rendered)
         self.assertIn("PROOF REQUIRED", rendered)
         self.assertIn("HANDOFF RULE", rendered)
+
+
+    def test_proof_log_requires_asset_hook_and_next_action(self):
+        proof = build_m3_proof("clip-001.mp4", "When the getaway goes wrong", "Pick tomorrow's clip")
+        self.assertEqual(proof["status"], "proof_logged")
+        rendered = render_m3_proof(proof)
+        self.assertIn("M3 PROOF LOGGED", rendered)
+        self.assertIn("clip-001.mp4", rendered)
+        with self.assertRaises(ValueError):
+            build_m3_proof("", "hook", "next")
 
 
 if __name__ == "__main__":
