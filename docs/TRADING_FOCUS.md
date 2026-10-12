@@ -99,3 +99,14 @@ Current method state:
 - Source type: fibonacci only
 
 Next bottleneck: add or refine at least two concrete, testable methods before expecting a meaningful backtest queue.
+
+## Method Outcome State
+
+After adding two paper-only method templates and reviewing queue items locally:
+
+- Method records: 3
+- Method outcomes: 3
+- Spot Long Risk-Complete Signal Template: 3 helped outcomes
+- Promotion engine recommendation: candidate_for_validation
+- Remaining queue focuses on Rejected Leverage Signal Filter
+- Execution/trading remain disabled.

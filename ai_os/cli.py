@@ -19,7 +19,7 @@ from ai_os.scheduler import (
     install_daily_cycle, uninstall_daily_brief, uninstall_daily_cycle,
 )
 from ai_os.store import AIOS
-from ai_os.supervizor import evidence_review_queue, read_supervizor_snapshot, render_evidence_review_queue, render_method_readiness, live_trading_focus, render_price_path_preview, render_trading_focus, score_with_price_path_preview, method_readiness, live_trading_focus, trading_focus
+from ai_os.supervizor import evidence_review_queue, live_trading_focus, method_readiness, read_supervizor_snapshot, render_evidence_review_queue, render_live_trading_focus, render_method_readiness, render_price_path_preview, render_trading_focus, score_with_price_path_preview, trading_focus
 from ai_os.workers import assign_next, render_assignment
 
 
@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "trading-methods":
             print(render_method_readiness(method_readiness(args.vault, args.outcomes)))
         elif args.command == "trading-live-focus":
-            print(render_method_readiness, live_trading_focus(method_readiness, live_trading_focus(args.scoreboard)))
+            print(render_live_trading_focus(live_trading_focus(args.scoreboard)))
         elif args.command == "trading-evidence":
             print(render_evidence_review_queue(evidence_review_queue(args.scoreboard)))
         elif args.command == "trading-outcome-preview":
