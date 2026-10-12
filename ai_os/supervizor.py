@@ -237,7 +237,8 @@ def render_evidence_review_queue(queue: dict[str, Any]) -> str:
         lines.append(
             f"- #{item['record_index']} {item['pair']} {item['side']} from {item['source']} | needs: {missing}"
         )
-    lines.extend(["", "NEXT ACTION", "- Resolve one item with local price-path/outcome evidence only.", ""])
+    next_action = "Resolve one item with local price-path/outcome evidence only." if queue["items"] else "Build or review the method backtest queue."
+    lines.extend(["", "NEXT ACTION", f"- {next_action}", ""])
     return "\n".join(lines)
 
 

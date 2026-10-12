@@ -69,3 +69,16 @@ Current live scoreboard state:
 - Unresolved records: 3
 - Outcomes: `stop_loss_hit: 2`
 - Execution/trading remain disabled.
+
+## Current Evidence State
+
+After local-only outcome review:
+
+- Total scoreboard records: 5
+- Resolved records: 5
+- Unresolved records: 0
+- Outcomes: `cannot_score: 3`, `stop_loss_hit: 2`
+- Method backtest queue: 0 items
+- Execution/trading remain disabled.
+
+Next bottleneck: build or refine method inventory so resolved signals can produce testable strategy evidence.
