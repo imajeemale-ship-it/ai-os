@@ -97,6 +97,65 @@ class SignalWatchTests(unittest.TestCase):
         self.assertFalse(sent)
         self.assertEqual(error, "missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
 
+    def test_paper_eligibility_accepts_fresh_spot_signal(self):
+        result = watch.paper_eligibility(
+            "Wallstreet Queen Official®",
+            {"side": "buy"},
+            "2026-10-06T11:00:00Z",
+            65000,
+            [66000, 67000],
+            64000,
+            now=watch.datetime.fromisoformat("2026-10-06T12:00:00+00:00"),
+        )
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["reasons"], [])
+
+    def test_paper_eligibility_rejects_risky_or_stale_signal(self):
+        result = watch.paper_eligibility(
+            "Crypto Best Futures Signals",
+            {"side": "buy", "leverage_detected": True, "dca_levels": [65000]},
+            "2026-10-06T01:00:00Z",
+            65000,
+            [66000, 67000],
+            None,
+            now=watch.datetime.fromisoformat("2026-10-06T12:00:00+00:00"),
+        )
+        self.assertFalse(result["eligible"])
+        self.assertEqual(
+            result["reasons"],
+            ["LEVERAGE_OR_DERIVATIVES", "DCA_NOT_SUPPORTED", "MISSING_STOP_LOSS", "STALE_SIGNAL"],
+        )
+
+    def test_paper_eligibility_rejects_invalid_ladder(self):
+        result = watch.paper_eligibility(
+            "Wallstreet Queen Official®",
+            {"side": "buy"},
+            "2026-10-06T11:00:00Z",
+            65000,
+            [64000, 67000, 66000],
+            66000,
+            now=watch.datetime.fromisoformat("2026-10-06T12:00:00+00:00"),
+        )
+        self.assertFalse(result["eligible"])
+        self.assertIn("STOP_NOT_BELOW_ENTRY", result["reasons"])
+        self.assertIn("TARGET_NOT_ABOVE_ENTRY", result["reasons"])
+        self.assertIn("TARGETS_NOT_ASCENDING", result["reasons"])
+
+    def test_paper_eligibility_fails_closed_on_malformed_prices(self):
+        result = watch.paper_eligibility(
+            "Wallstreet Queen Official®",
+            {"side": "buy"},
+            "2026-10-06T11:00:00Z",
+            "not-a-price",
+            ["also-not-a-price"],
+            "not-a-stop",
+            now=watch.datetime.fromisoformat("2026-10-06T12:00:00+00:00"),
+        )
+        self.assertFalse(result["eligible"])
+        self.assertIn("INVALID_ENTRY", result["reasons"])
+        self.assertIn("MISSING_STOP_LOSS", result["reasons"])
+        self.assertIn("MISSING_TARGETS", result["reasons"])
+
 
 if __name__ == "__main__":
     unittest.main()

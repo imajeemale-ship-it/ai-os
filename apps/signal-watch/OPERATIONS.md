@@ -94,6 +94,11 @@ Once the private bot token and your direct-message chat ID are configured in the
 
 Signal Watch can run a local paper-trading lane that never places broker or exchange orders. It reads logged signals from `~/.ai-os/signal_watch.db`, opens simulated long positions only from ranked sources with parsed entries and targets, checks Coinbase public prices, takes 25% simulated exits at TP1, TP2, and TP3, closes the remaining runner at TP4, and records stops or realized paper P/L.
 
+Paper admission is fail-closed. A signal must be fresh under its source timeout,
+spot-long, non-leveraged, non-DCA, have a numeric entry, a stop below entry, and
+ascending targets. This keeps incomplete or risky Telegram calls out of the
+performance sample while preserving them in Signal Watch for human review.
+
 Install or refresh the scheduled paper trader:
 
 ```sh

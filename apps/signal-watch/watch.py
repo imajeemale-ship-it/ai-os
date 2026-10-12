@@ -319,6 +319,79 @@ def risk_flags(parsed: dict[str, Any], sent_at: str) -> list[str]:
     return warnings
 
 
+def paper_eligibility(
+    source: str,
+    parsed: dict[str, Any],
+    sent_at: str,
+    entry_price: float | None,
+    targets: list[float],
+    stop_loss: float | None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return a fail-closed admission decision for the spot paper lane.
+
+    This is deliberately stricter than alerting: a Telegram call can be useful
+    context while still being unsuitable for an objective paper-trading result.
+    """
+    reasons: list[str] = []
+    policy = source_policy(source)
+    try:
+        entry_value = float(entry_price) if entry_price is not None else None
+    except (TypeError, ValueError):
+        entry_value = None
+    try:
+        stop_value = float(stop_loss) if stop_loss is not None else None
+    except (TypeError, ValueError):
+        stop_value = None
+    try:
+        target_values = [float(target) for target in targets]
+    except (TypeError, ValueError):
+        target_values = []
+    if policy["rank"] == "Unranked" or policy["bias"] == "watch-only":
+        reasons.append("SOURCE_NOT_APPROVED")
+    if str(parsed.get("side") or "").casefold() in {"short", "sell"}:
+        reasons.append("SHORT_NOT_SUPPORTED")
+    if parsed.get("leverage_detected") or parsed.get("leverage_or_derivatives_detected"):
+        reasons.append("LEVERAGE_OR_DERIVATIVES")
+    if parsed.get("dca_levels"):
+        reasons.append("DCA_NOT_SUPPORTED")
+    if entry_value is None or entry_value <= 0:
+        reasons.append("INVALID_ENTRY")
+    if stop_value is None or stop_value <= 0:
+        reasons.append("MISSING_STOP_LOSS")
+    if entry_value is not None and stop_value is not None and stop_value >= entry_value:
+        reasons.append("STOP_NOT_BELOW_ENTRY")
+    if not target_values:
+        reasons.append("MISSING_TARGETS")
+    elif entry_value is not None:
+        if any(target <= entry_value for target in target_values):
+            reasons.append("TARGET_NOT_ABOVE_ENTRY")
+        if any(left >= right for left, right in zip(target_values, target_values[1:])):
+            reasons.append("TARGETS_NOT_ASCENDING")
+    try:
+        sent = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
+        if sent.tzinfo is None:
+            sent = sent.replace(tzinfo=timezone.utc)
+        reference = now or datetime.now(timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        age_hours = (reference - sent.astimezone(timezone.utc)).total_seconds() / 3600
+        if age_hours > float(policy["timeout_hours"]):
+            reasons.append("STALE_SIGNAL")
+        if age_hours < -0.25:
+            reasons.append("FUTURE_TIMESTAMP")
+    except (TypeError, ValueError):
+        age_hours = None
+        reasons.append("INVALID_TIMESTAMP")
+    return {
+        "eligible": not reasons,
+        "reasons": reasons,
+        "age_hours": age_hours,
+        "policy_rank": policy["rank"],
+    }
+
+
 def format_alert(row: sqlite3.Row) -> str:
     parsed = json.loads(row["parsed_json"])
     warnings = risk_flags(parsed, row["sent_at"])

@@ -6,6 +6,12 @@ A local-first Telegram signal watcher for AI-OS. It reuses Supervizor's existing
 
 Signal Watch only reads Telegram and sends alert messages. It never connects to a broker or exchange and never places, modifies, or cancels an order. Parsed signal alerts are untrusted information; spot-only paper review remains separate. Unknown fields, missing stop loss, short, leverage, derivatives, DCA, or stale messages are visibly flagged.
 
+The paper lane applies a stricter admission gate than alerting: it opens only fresh,
+ranked spot-long calls with a numeric entry, a stop below entry, and ascending
+targets. Signals that are stale, leveraged, derivative, DCA-based, short, malformed,
+or missing a stop/target are logged and alerted for review but never become paper
+positions.
+
 ## Requirements
 
 - Python 3.11+

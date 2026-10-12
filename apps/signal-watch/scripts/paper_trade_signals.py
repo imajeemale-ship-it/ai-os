@@ -191,7 +191,14 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
             continue
         entry = parse_entry(row)
         targets = parse_targets(row)
-        if entry is None or not targets:
+        try:
+            parsed = json.loads(row["parsed_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            parsed = {}
+        eligibility = watch.paper_eligibility(
+            row["source"], parsed, row["sent_at"], entry, targets, row["stop_loss"]
+        )
+        if not eligibility["eligible"]:
             continue
         policy = watch.source_policy(row["source"])
         note = f"paper open; {policy['rank']} {policy['bias']}; partial exits at targets"
