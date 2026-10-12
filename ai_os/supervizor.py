@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from ai_os.broker_tools import classify_broker_tools
 
 DEFAULT_REPORT = (
     Path.home() / "Desktop" / "ai-agent-test" / "ft_userdata"
@@ -510,11 +511,17 @@ def render_method_promotion_review(report: dict[str, Any]) -> str:
 
 
 
-def real_trading_readiness() -> dict[str, Any]:
+def real_trading_readiness(broker_tools: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    broker_report = classify_broker_tools(broker_tools or [])
+    broker_detail = (
+        "Broker tool inventory classified; manual live policy review still required."
+        if broker_report["classification_complete"]
+        else "Broker tool inventory is missing or contains unknown tools; live integration remains blocked."
+    )
     checks = [
         {"name": "paper_methods_testing", "passed": True, "detail": "Two paper-only methods are in testing."},
         {"name": "execution_flags_disabled", "passed": True, "detail": "AI-OS reports execution/trading disabled."},
-        {"name": "broker_tool_classification", "passed": False, "detail": "Robinhood MCP tool discovery/classification is still blocked."},
+        {"name": "broker_tool_classification", "passed": broker_report["classification_complete"], "detail": broker_detail},
         {"name": "explicit_live_policy", "passed": False, "detail": "No approved live-trading policy revision exists."},
         {"name": "funding_and_risk_limits", "passed": False, "detail": "Live account, budget, max loss, and kill switch are not approved."},
         {"name": "human_final_approval", "passed": False, "detail": "KD has not approved live execution scope."},
@@ -523,6 +530,7 @@ def real_trading_readiness() -> dict[str, Any]:
         "mode": "live_trading_locked",
         "ready_for_real_trading": all(item["passed"] for item in checks),
         "checks": checks,
+        "broker_tool_classification": broker_report,
         "next_action": "Keep paper testing until broker tools, live policy, risk limits, and KD approval are complete.",
         "execution_allowed": False,
         "trading_allowed": False,

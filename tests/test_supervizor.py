@@ -162,8 +162,19 @@ class SupervizorSnapshotTests(unittest.TestCase):
         rendered = render_real_trading_readiness(report)
         self.assertFalse(report["ready_for_real_trading"])
         self.assertFalse(report["execution_allowed"])
+        self.assertFalse(report["broker_tool_classification"]["classification_complete"])
         self.assertIn("broker_tool_classification", rendered)
         self.assertIn("human_final_approval", rendered)
+
+    def test_real_trading_readiness_can_accept_classified_broker_inventory_without_unlocking(self):
+        report = real_trading_readiness([
+            {"name": "get_quote", "description": "market price"},
+            {"name": "place_order", "description": "buy or sell order"},
+        ])
+        checks = {check["name"]: check for check in report["checks"]}
+        self.assertTrue(checks["broker_tool_classification"]["passed"])
+        self.assertFalse(report["ready_for_real_trading"])
+        self.assertFalse(report["execution_allowed"])
 
 
     def test_daily_trading_operator_combines_safe_sections(self):
