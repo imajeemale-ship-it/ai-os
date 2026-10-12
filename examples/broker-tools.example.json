@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "name": "get_quote",
+      "description": "Read current market price for a symbol"
+    },
+    {
+      "name": "get_positions",
+      "description": "Read account portfolio positions"
+    },
+    {
+      "name": "place_order",
+      "description": "Submit a buy or sell order"
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an open order"
+    }
+  ]
+}

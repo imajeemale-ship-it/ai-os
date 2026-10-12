@@ -154,6 +154,7 @@ python3 -m ai_os broker-classify get_quote:market_price place_order:buy_or_sell 
 Or classify a saved inventory file:
 
 ```bash
+python3 -m ai_os broker-classify --file examples/broker-tools.example.json
 python3 -m ai_os broker-classify --file ~/.ai-os/broker-tools.json
 python3 -m ai_os trading-real-readiness --broker-tools ~/.ai-os/broker-tools.json
 ```
