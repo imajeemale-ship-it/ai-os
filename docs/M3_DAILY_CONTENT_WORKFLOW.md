@@ -49,3 +49,17 @@ Current strong source candidate:
 ```text
 /Users/unagidon/Downloads/Rico_vs_THE_WORLD_KD_Cut_2_COMPLETE.mp4
 ```
+
+## Clip Planning
+
+Create candidate short segments from a source video:
+
+```bash
+python3 -m ai_os m3-clip-plan /path/to/source.mp4 --length 20
+```
+
+Current candidate plan for `Rico_vs_THE_WORLD_KD_Cut_2_COMPLETE.mp4`:
+
+- opening hook: 0s-20s
+- middle turn: 59s-79s
+- closing payoff: 119s-139s

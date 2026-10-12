@@ -1,6 +1,8 @@
 """M3 daily content workflow."""
 
 from __future__ import annotations
+import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -116,4 +118,84 @@ def render_m3_sources(candidates: list[dict[str, Any]]) -> str:
             lines.append(f"{index}. {item['name']} ({item['size_mb']} MB)")
             lines.append(f"   {item['path']}")
     lines.append("")
+    return "\n".join(lines)
+
+
+def inspect_video(path: str) -> dict[str, Any]:
+    source = Path(path).expanduser()
+    if not source.exists():
+        raise ValueError(f"video not found: {source}")
+    result = subprocess.run([
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration,size",
+        "-show_entries", "stream=codec_type,width,height,r_frame_rate",
+        "-of", "json", str(source),
+    ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "ffprobe failed")
+    data = json.loads(result.stdout)
+    video = next((stream for stream in data.get("streams", []) if stream.get("codec_type") == "video"), {})
+    duration = float(data.get("format", {}).get("duration", 0.0))
+    size = int(data.get("format", {}).get("size", 0))
+    return {
+        "path": str(source),
+        "name": source.name,
+        "duration_seconds": round(duration, 1),
+        "size_mb": round(size / (1024 * 1024), 1),
+        "width": video.get("width"),
+        "height": video.get("height"),
+        "frame_rate": video.get("r_frame_rate"),
+    }
+
+
+def build_clip_plan(path: str, clip_length: int = 20) -> dict[str, Any]:
+    meta = inspect_video(path)
+    duration = int(meta["duration_seconds"])
+    if duration <= 0:
+        raise ValueError("video duration is unavailable")
+    starts = [0]
+    if duration > clip_length * 2:
+        starts.append(max(0, duration // 2 - clip_length // 2))
+    if duration > clip_length:
+        starts.append(max(0, duration - clip_length))
+    unique_starts = []
+    for start in starts:
+        if start not in unique_starts:
+            unique_starts.append(start)
+    candidates = []
+    labels = ["opening hook", "middle turn", "closing payoff"]
+    for index, start in enumerate(unique_starts[:3]):
+        end = min(duration, start + clip_length)
+        candidates.append({
+            "label": labels[index],
+            "start_seconds": start,
+            "end_seconds": end,
+            "duration_seconds": end - start,
+            "target": f"M3 short candidate {index + 1}",
+        })
+    return {
+        "source": meta,
+        "clip_length": clip_length,
+        "candidates": candidates,
+        "next_action": "Review the candidate segments and export the strongest publishable moment.",
+    }
+
+
+def render_clip_plan(plan: dict[str, Any]) -> str:
+    source = plan["source"]
+    lines = [
+        "M3 CLIP PLAN",
+        "",
+        f"Source: {source['path']}",
+        f"Duration: {source['duration_seconds']} seconds",
+        f"Video: {source.get('width')}x{source.get('height')} at {source.get('frame_rate')}",
+        "",
+        "CANDIDATES",
+    ]
+    for index, item in enumerate(plan["candidates"], start=1):
+        lines.append(
+            f"{index}. {item['label']}: {item['start_seconds']}s-{item['end_seconds']}s "
+            f"({item['duration_seconds']}s)"
+        )
+    lines.extend(["", "NEXT ACTION", f"- {plan['next_action']}", ""])
     return "\n".join(lines)

@@ -1,6 +1,6 @@
 import unittest
 
-from ai_os.m3 import build_m3_proof, build_m3_workflow, render_m3_proof, render_m3_sources, render_m3_workflow, scan_m3_sources
+from ai_os.m3 import build_clip_plan, build_m3_proof, build_m3_workflow, inspect_video, render_clip_plan, render_m3_proof, render_m3_sources, render_m3_workflow, scan_m3_sources
 
 
 class M3WorkflowTests(unittest.TestCase):
@@ -41,6 +41,25 @@ class M3WorkflowTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0]["name"], "Rico_clip.mp4")
         self.assertIn("M3 SOURCE CANDIDATES", render_m3_sources(candidates))
+
+
+    def test_clip_plan_uses_video_metadata(self):
+        import shutil
+        import subprocess
+        import tempfile
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("ffmpeg/ffprobe unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            source = __import__("pathlib").Path(directory) / "Rico_test.mp4"
+            subprocess.run([
+                "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=6:size=320x180:rate=30",
+                "-pix_fmt", "yuv420p", str(source)
+            ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            meta = inspect_video(str(source))
+            plan = build_clip_plan(str(source), clip_length=2)
+        self.assertEqual(meta["width"], 320)
+        self.assertGreaterEqual(len(plan["candidates"]), 2)
+        self.assertIn("M3 CLIP PLAN", render_clip_plan(plan))
 
 if __name__ == "__main__":
     unittest.main()
