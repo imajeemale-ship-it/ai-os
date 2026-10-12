@@ -6,6 +6,7 @@ import json
 import sys
 from typing import Any
 from ai_os.bootstrap import bootstrap
+from ai_os.broker_tools import classify_broker_tools, render_broker_tool_classification
 from ai_os.chief import chief_of_staff_report, render_chief_of_staff, render_priority_reasoning, save_chief_of_staff_report
 from ai_os.cycle import render_cycle, save_daily_cycle
 from ai_os.loop import ExecutionLoop
@@ -88,6 +89,8 @@ def parser() -> argparse.ArgumentParser:
     preview.add_argument("--scoreboard")
     daily_trading = commands.add_parser("trading-daily-operator", help="Run the paper trading daily operator report")
     daily_trading.add_argument("--save", action="store_true")
+    broker = commands.add_parser("broker-classify", help="Classify broker tool names without enabling trading")
+    broker.add_argument("tool", nargs="*", help="Tool name, optionally name:description")
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
@@ -204,6 +207,12 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_daily_trading_operator())})
             else:
                 print(render_daily_trading_operator(daily_trading_operator()))
+        elif args.command == "broker-classify":
+            tools = []
+            for item in args.tool:
+                name, _, description = item.partition(":")
+                tools.append({"name": name, "description": description})
+            print(render_broker_tool_classification(classify_broker_tools(tools)))
         elif args.command == "trading-real-readiness":
             print(render_real_trading_readiness(real_trading_readiness()))
         elif args.command == "trading-focus":

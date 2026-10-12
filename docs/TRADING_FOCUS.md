@@ -142,6 +142,17 @@ Current recommendations:
 
 Promotion requires human decision and does not enable trading.
 
+
+## Broker Tool Classification
+
+Classify future broker/RPC tools before any live integration work:
+
+```bash
+python3 -m ai_os broker-classify get_quote:market_price place_order:buy_or_sell cancel_order:cancel_open_order
+```
+
+The classifier is offline and fail-closed. Read-only/account tools are marked sensitive, order or money-movement tools are marked critical, and unknown tools keep classification incomplete. No classification enables trading by itself.
+
 ## Real Trading Readiness Gate
 
 Show the locked path toward future real trading:
