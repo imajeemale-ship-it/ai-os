@@ -12,6 +12,11 @@ targets. Signals that are stale, leveraged, derivative, DCA-based, short, malfor
 or missing a stop/target are logged and alerted for review but never become paper
 positions.
 
+Each incoming signal also receives a persisted 0–100 conviction score with LOW,
+MEDIUM, or HIGH confidence. The score explains channel history, completeness,
+risk/reward, recent cross-channel agreement, and freshness. The paper lane accepts
+only MEDIUM or HIGH conviction signals in addition to its existing safety gate.
+
 ## Requirements
 
 - Python 3.11+

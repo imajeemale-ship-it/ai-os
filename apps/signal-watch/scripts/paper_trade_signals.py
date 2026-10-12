@@ -200,8 +200,15 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         )
         if not eligibility["eligible"]:
             continue
+        conviction = row["conviction_score"] if "conviction_score" in row.keys() else None
+        if conviction is None:
+            conviction = watch.calculate_conviction(
+                db, row["source"], parsed, row["sent_at"], row["ticker"], entry, targets, row["stop_loss"]
+            )["conviction_score"]
+        if float(conviction) < 50:
+            continue
         policy = watch.source_policy(row["source"])
-        note = f"paper open; {policy['rank']} {policy['bias']}; partial exits at targets"
+        note = f"paper open; conviction {float(conviction):.1f}/100; {policy['rank']} {policy['bias']}; partial exits at targets"
         events.append(PaperEvent(row["id"], "open", row["ticker"], row["source"], entry, 100, 0, note))
         if dry_run:
             continue

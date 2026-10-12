@@ -49,6 +49,64 @@ class SignalWatchTests(unittest.TestCase):
         self.assertIn("BTC", watch.format_alert(row))
         self.assertIn("no order placed", watch.format_alert(row))
 
+    def test_persists_explainable_conviction_fields(self):
+        signal = self.make_signal(source="Wallstreet Queen Official®")
+        self.assertTrue(self.db.add(signal))
+        row = self.db.pending()[0]
+        self.assertIsNotNone(row["conviction_score"])
+        self.assertIn(row["confidence_level"], {"LOW", "MEDIUM", "HIGH"})
+        reasons = json.loads(row["conviction_reasons_json"])
+        self.assertTrue(reasons)
+        alert = watch.format_alert(row)
+        self.assertIn("Conviction:", alert)
+        self.assertIn("Conviction reasons:", alert)
+
+    def test_conviction_uses_historical_results_and_duplicate_agreement(self):
+        with self.db.connect() as db:
+            db.execute(
+                """CREATE TABLE paper_positions (
+                id INTEGER PRIMARY KEY, source TEXT, status TEXT,
+                realized_pnl_pct REAL)"""
+            )
+            db.executemany(
+                "INSERT INTO paper_positions(source,status,realized_pnl_pct) VALUES(?,?,?)",
+                [("Wallstreet Queen Official®", "closed", 5.0),
+                 ("Wallstreet Queen Official®", "closed", -1.0)],
+            )
+        first = self.make_signal(message_id=1, source="Technical CRYPTO Analyst")
+        self.assertTrue(self.db.add(first))
+        second = self.make_signal(message_id=2, source="Wallstreet Queen Official®")
+        self.assertTrue(self.db.add(second))
+        row = self.db.pending(limit=10)[-1]
+        reasons = json.loads(row["conviction_reasons_json"])
+        self.assertTrue(any("Channel history" in reason for reason in reasons))
+        self.assertTrue(any("Duplicate agreement" in reason for reason in reasons))
+
+    def test_paper_pipeline_skips_low_conviction_signal(self):
+        paper_spec = importlib.util.spec_from_file_location(
+            "paper_trade_signals_test", APP / "scripts" / "paper_trade_signals.py"
+        )
+        paper = importlib.util.module_from_spec(paper_spec)
+        assert paper_spec and paper_spec.loader
+        sys.modules[paper_spec.name] = paper
+        paper_spec.loader.exec_module(paper)
+        with self.db.connect() as db:
+            paper.init_db(db)
+            db.executemany(
+                """INSERT INTO paper_positions
+                (signal_id,source,ticker,side,entry_price,targets_json,status,opened_at,updated_at,realized_pnl_pct)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                [(9001, "Wallstreet Queen Official®", "BTC", "long", 65000, "[66000]", "closed", watch.utc_now(), watch.utc_now(), -10.0),
+                 (9002, "Wallstreet Queen Official®", "ETH", "long", 3000, "[3100]", "closed", watch.utc_now(), watch.utc_now(), -10.0)],
+            )
+        signal = self.make_signal(source="Wallstreet Queen Official®")
+        signal = watch.Signal(signal.source, signal.message_id, watch.utc_now(), signal.raw_text,
+                              signal.parsed, signal.dedupe_key, signal.url)
+        self.assertTrue(self.db.add(signal))
+        with self.db.connect() as db:
+            events = paper.open_candidates(db, dry_run=True)
+        self.assertEqual(events, [])
+
     def test_duplicate_text_merges_across_sources(self):
         first = self.make_signal(message_id=1, source="A")
         second = self.make_signal(message_id=2, source="B")

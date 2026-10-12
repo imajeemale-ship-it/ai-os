@@ -184,6 +184,20 @@ class SignalStore:
                     updated_at TEXT NOT NULL
                 );
             """)
+            self._ensure_signal_columns(db)
+
+    @staticmethod
+    def _ensure_signal_columns(db: sqlite3.Connection) -> None:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(signals)")}
+        additions = {
+            "conviction_score": "REAL",
+            "confidence_level": "TEXT",
+            "conviction_reasons_json": "TEXT",
+            "conviction_warnings_json": "TEXT",
+        }
+        for name, definition in additions.items():
+            if name not in columns:
+                db.execute(f"ALTER TABLE signals ADD COLUMN {name} {definition}")
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -212,15 +226,21 @@ class SignalStore:
         targets = parsed.get("targets") or []
         stop_loss = parsed.get("stop_loss")
         with self.connect() as db:
+            conviction = calculate_conviction(
+                db, signal.source, parsed, signal.sent_at, ticker, entry, targets, stop_loss
+            )
             cursor = db.execute(
                 """INSERT OR IGNORE INTO signals
                 (source,message_id,sent_at,received_at,ticker,pair,side,entry_json,
-                 targets_json,stop_loss,parsed_json,raw_text,dedupe_key,source_url)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 targets_json,stop_loss,parsed_json,raw_text,dedupe_key,source_url,
+                 conviction_score,confidence_level,conviction_reasons_json,conviction_warnings_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (signal.source, signal.message_id, signal.sent_at, utc_now(), ticker,
                  pair, parsed.get("side"), json.dumps(entry), json.dumps(targets),
                  stop_loss, json.dumps(parsed, ensure_ascii=False, sort_keys=True),
-                 signal.raw_text, signal.dedupe_key, signal.url),
+                 signal.raw_text, signal.dedupe_key, signal.url, conviction["conviction_score"],
+                 conviction["confidence_level"], json.dumps(conviction["reasons"], ensure_ascii=False),
+                 json.dumps(conviction["warnings"], ensure_ascii=False)),
             )
             return cursor.rowcount == 1
 
@@ -275,6 +295,222 @@ def source_policy(source: str) -> dict[str, Any]:
         if key == normalized or key.startswith(normalized) or normalized.startswith(key):
             return policy
     return DEFAULT_TRADE_POLICY
+
+
+def _number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None
+
+
+def _entry_price(entry: Any) -> float | None:
+    if isinstance(entry, dict):
+        values = [_number(entry.get(key)) for key in ("low", "high")]
+        values = [value for value in values if value is not None]
+        return sum(values) / len(values) if values else None
+    return _number(entry)
+
+
+def _direction(value: Any) -> str | None:
+    side = str(value or "").casefold()
+    if side in {"buy", "long"}:
+        return "long"
+    if side in {"sell", "short"}:
+        return "short"
+    return None
+
+
+def _timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
+
+
+def _historical_channel_stats(db: sqlite3.Connection, source: str) -> dict[str, float | int]:
+    empty: dict[str, float | int] = {
+        "closed": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+        "profit_factor": 0.0, "average_return": 0.0,
+    }
+    exists = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='paper_positions'"
+    ).fetchone()
+    if not exists:
+        return empty
+    rows = db.execute(
+        "SELECT realized_pnl_pct FROM paper_positions WHERE source=? AND status='closed'",
+        (source,),
+    ).fetchall()
+    returns = [_number(row[0]) or 0.0 for row in rows]
+    if not returns:
+        return empty
+    wins = sum(value > 0 for value in returns)
+    losses = sum(value < 0 for value in returns)
+    gross_profit = sum(value for value in returns if value > 0)
+    gross_loss = sum(-value for value in returns if value < 0)
+    return {
+        "closed": len(returns),
+        "wins": wins,
+        "losses": losses,
+        "win_rate": wins / (wins + losses) * 100 if wins + losses else 0.0,
+        "profit_factor": gross_profit / gross_loss if gross_loss else (2.0 if gross_profit else 0.0),
+        "average_return": sum(returns) / len(returns),
+    }
+
+
+def calculate_conviction(
+    db: sqlite3.Connection,
+    source: str,
+    parsed: dict[str, Any],
+    sent_at: str,
+    ticker: str | None,
+    entry: Any,
+    targets: list[Any],
+    stop_loss: Any,
+) -> dict[str, Any]:
+    """Score one signal using transparent, bounded factors totaling 100 points."""
+    score = 0.0
+    reasons: list[str] = []
+    warnings: list[str] = []
+    history = _historical_channel_stats(db, source)
+
+    if history["closed"]:
+        win_score = min(25.0, float(history["win_rate"]) / 100 * 25)
+        pf_score = min(20.0, float(history["profit_factor"]) / 2 * 20)
+        average_score = max(0.0, min(15.0, 7.5 + float(history["average_return"]) / 5 * 7.5))
+        historical_points = win_score + pf_score + average_score
+        score += historical_points
+        reasons.append(
+            f"Channel history: {int(history['closed'])} closed trades, "
+            f"{float(history['win_rate']):.1f}% win rate, PF {float(history['profit_factor']):.2f}, "
+            f"average return {float(history['average_return']):+.2f}% "
+            f"({historical_points:.1f}/60 points)"
+        )
+    else:
+        score += 12.5 + 10.0 + 7.5
+        reasons.append("Channel history has no closed paper trades; neutral historical prior applied (30/60 points)")
+
+    entry_value = _entry_price(entry)
+    stop_value = _number(stop_loss)
+    target_values = [_number(value) for value in targets]
+    target_values = [value for value in target_values if value is not None]
+    completeness = 0.0
+    if ticker:
+        completeness += 3
+    else:
+        warnings.append("Ticker is missing or ambiguous")
+    direction = _direction(parsed.get("side"))
+    if direction:
+        completeness += 2
+    else:
+        warnings.append("Direction is missing or unrecognized")
+    if entry_value is not None and entry_value > 0:
+        completeness += 3
+    else:
+        warnings.append("Entry is missing or invalid")
+    if target_values:
+        completeness += 3
+    else:
+        warnings.append("Targets are missing or invalid")
+    if stop_value is not None and stop_value > 0:
+        completeness += 3
+    else:
+        warnings.append("Stop loss is missing or invalid")
+    if not (parsed.get("leverage_detected") or parsed.get("leverage_or_derivatives_detected") or parsed.get("dca_levels")):
+        completeness += 1
+    else:
+        warnings.append("Leverage, derivatives, or DCA language reduces completeness")
+    score += completeness
+    reasons.append(f"Signal completeness: {completeness:.0f}/15")
+
+    risk_reward = None
+    if direction and entry_value is not None and stop_value is not None and target_values:
+        if direction == "long":
+            risk = entry_value - stop_value
+            reward = target_values[0] - entry_value
+        else:
+            risk = stop_value - entry_value
+            reward = entry_value - target_values[0]
+        if risk > 0 and reward > 0:
+            risk_reward = reward / risk
+    if risk_reward is None:
+        rr_score = 0.0
+        warnings.append("Risk/reward cannot be verified")
+    elif risk_reward >= 3:
+        rr_score = 10.0
+    elif risk_reward >= 2:
+        rr_score = 7.5
+    elif risk_reward >= 1:
+        rr_score = 5.0
+    else:
+        rr_score = 2.0
+        warnings.append(f"Low risk/reward ratio ({risk_reward:.2f})")
+    score += rr_score
+    reasons.append(f"Risk/reward: {risk_reward:.2f} ({rr_score:.1f}/10)" if risk_reward is not None else "Risk/reward: unavailable (0/10)")
+
+    agreement_score = 5.0
+    agreement = 0
+    conflict = 0
+    sent = _timestamp(sent_at)
+    if ticker and sent is not None:
+        exists = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='signals'"
+        ).fetchone()
+        if exists:
+            rows = db.execute(
+                "SELECT side, sent_at FROM signals WHERE ticker=? AND source!=?",
+                (ticker, source),
+            ).fetchall()
+            for row in rows:
+                other_time = _timestamp(row[1])
+                if other_time is None or abs((sent - other_time).total_seconds()) > 6 * 3600:
+                    continue
+                if _direction(row[0]) == direction:
+                    agreement += 1
+                elif _direction(row[0]) and direction:
+                    conflict += 1
+            if agreement >= 2:
+                agreement_score = 10.0
+            elif agreement == 1:
+                agreement_score = 8.0
+            if conflict:
+                agreement_score = max(0.0, agreement_score - min(5.0, conflict * 2))
+                warnings.append(f"Conflicting direction from {conflict} recent channel(s)")
+    if agreement:
+        reasons.append(f"Duplicate agreement: {agreement} recent matching signal(s) ({agreement_score:.1f}/10)")
+    else:
+        reasons.append(f"Duplicate agreement: no recent matching signal ({agreement_score:.1f}/10)")
+    score += agreement_score
+
+    freshness_score = 0.0
+    age_hours = None
+    if sent is not None:
+        age_hours = (datetime.now(timezone.utc) - sent).total_seconds() / 3600
+        timeout = float(source_policy(source)["timeout_hours"])
+        freshness_score = max(0.0, min(5.0, 5 * (1 - age_hours / timeout)))
+        if age_hours > timeout:
+            warnings.append(f"Signal is stale ({age_hours:.1f}h; source timeout {timeout:g}h)")
+        elif age_hours < -0.25:
+            freshness_score = 0.0
+            warnings.append("Signal timestamp is in the future")
+    else:
+        warnings.append("Signal timestamp is invalid")
+    score += freshness_score
+    reasons.append(f"Freshness: {freshness_score:.1f}/5" + (f" at {age_hours:.1f}h old" if age_hours is not None else " unavailable"))
+
+    score = round(max(0.0, min(100.0, score)), 2)
+    confidence = "HIGH" if score >= 75 else "MEDIUM" if score >= 50 else "LOW"
+    return {
+        "conviction_score": score,
+        "confidence_level": confidence,
+        "reasons": reasons,
+        "warnings": warnings,
+    }
 
 
 def trade_plan_lines(source: str, parsed: dict[str, Any]) -> list[str]:
@@ -419,9 +655,16 @@ def format_alert(row: sqlite3.Row) -> str:
         f"Targets: {target_text}",
         f"Stop loss: {row['stop_loss'] if row['stop_loss'] is not None else 'MISSING'}",
         "Review: " + (" | ".join(warnings) if warnings else "no parser warnings"),
+        f"Conviction: {row['conviction_score']:.1f}/100 · {row['confidence_level']}" if row['conviction_score'] is not None else "Conviction: unavailable",
         *trade_plan_lines(row["source"], parsed),
         "Status: information only · no order placed",
     ]
+    if row["conviction_reasons_json"]:
+        lines.append("Conviction reasons: " + " | ".join(json.loads(row["conviction_reasons_json"])))
+    if row["conviction_warnings_json"]:
+        conviction_warnings = json.loads(row["conviction_warnings_json"])
+        if conviction_warnings:
+            lines.append("Conviction warnings: " + " | ".join(conviction_warnings))
     if row["source_url"]:
         lines.append(f"Source message: {row['source_url']}")
     if row["raw_text"]:

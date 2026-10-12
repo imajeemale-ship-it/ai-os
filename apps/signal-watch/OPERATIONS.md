@@ -99,6 +99,13 @@ spot-long, non-leveraged, non-DCA, have a numeric entry, a stop below entry, and
 ascending targets. This keeps incomplete or risky Telegram calls out of the
 performance sample while preserving them in Signal Watch for human review.
 
+Signal Watch persists a conviction score for every newly logged signal. It is a
+0–100 explainable score with LOW/MEDIUM/HIGH confidence and factor reasons plus
+warnings. Historical channel performance contributes up to 60 points; completeness
+15; risk/reward 10; recent duplicate agreement 10; and freshness 5. The paper
+trader requires at least 50 points, so low-conviction calls remain visible but are
+not added to the paper performance sample.
+
 Install or refresh the scheduled paper trader:
 
 ```sh
