@@ -160,3 +160,25 @@ Current state:
 - KD final approval: blocked
 
 This keeps future real trading easy to prepare for but impossible to enable accidentally.
+
+## Daily Paper Trading Operator
+
+Run the full paper-only trading cockpit:
+
+```bash
+python3 -m ai_os trading-daily-operator
+```
+
+Save the daily report:
+
+```bash
+python3 -m ai_os trading-daily-operator --save
+```
+
+Saved reports go to:
+
+```text
+~/.ai-os/trading-reports/
+```
+
+The report combines live scoreboard status, method readiness, promotion review, and the locked real-trading gate.

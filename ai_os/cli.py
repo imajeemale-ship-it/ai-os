@@ -20,11 +20,11 @@ from ai_os.scheduler import (
 )
 from ai_os.store import AIOS
 from ai_os.supervizor import (
-    evidence_review_queue, live_trading_focus, method_promotion_review,
-    method_readiness, read_supervizor_snapshot, render_evidence_review_queue,
+    daily_trading_operator, evidence_review_queue, live_trading_focus, method_promotion_review,
+    method_readiness, read_supervizor_snapshot, render_daily_trading_operator, render_evidence_review_queue,
     render_live_trading_focus, render_method_promotion_review,
     render_method_readiness, render_price_path_preview, render_real_trading_readiness, render_trading_focus,
-    score_with_price_path_preview, real_trading_readiness, trading_focus,
+    save_daily_trading_operator, score_with_price_path_preview, real_trading_readiness, trading_focus,
 )
 from ai_os.workers import assign_next, render_assignment
 
@@ -85,6 +85,8 @@ def parser() -> argparse.ArgumentParser:
     preview.add_argument("--record-index", type=int, required=True)
     preview.add_argument("--prices", required=True)
     preview.add_argument("--scoreboard")
+    daily_trading = commands.add_parser("trading-daily-operator", help="Run the paper trading daily operator report")
+    daily_trading.add_argument("--save", action="store_true")
     real = commands.add_parser("trading-real-readiness", help="Show locked real-trading readiness gate")
     trading = commands.add_parser("trading-focus", help="Show paper-only Supervizor trading focus")
     trading.add_argument("--report", help="Path to latest_daily_operator_run.json")
@@ -191,6 +193,11 @@ def main(argv: list[str] | None = None) -> int:
             print(render_evidence_review_queue(evidence_review_queue(args.scoreboard)))
         elif args.command == "trading-outcome-preview":
             print(render_price_path_preview(score_with_price_path_preview(args.record_index, args.prices, args.scoreboard)))
+        elif args.command == "trading-daily-operator":
+            if args.save:
+                _print({"saved_to": str(save_daily_trading_operator())})
+            else:
+                print(render_daily_trading_operator(daily_trading_operator()))
         elif args.command == "trading-real-readiness":
             print(render_real_trading_readiness(real_trading_readiness()))
         elif args.command == "trading-focus":

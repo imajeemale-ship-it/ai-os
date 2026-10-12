@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -544,3 +545,65 @@ def render_real_trading_readiness(report: dict[str, Any]) -> str:
         lines.append(f"- {status}: {check['name']} - {check['detail']}")
     lines.extend(["", "NEXT ACTION", f"- {report['next_action']}", ""])
     return "\n".join(lines)
+
+
+
+def daily_trading_operator() -> dict[str, Any]:
+    return {
+        "mode": "paper_only_watch_only",
+        "live_focus": live_trading_focus(),
+        "evidence_queue": evidence_review_queue(),
+        "method_readiness": method_readiness(),
+        "promotion_review": method_promotion_review(),
+        "real_trading_readiness": real_trading_readiness(),
+        "execution_allowed": False,
+        "trading_allowed": False,
+        "next_action": "Continue paper testing; review promotion candidates and keep real trading locked.",
+    }
+
+
+def render_daily_trading_operator(report: dict[str, Any]) -> str:
+    live = report["live_focus"]
+    methods = report["method_readiness"]
+    real = report["real_trading_readiness"]
+    lines = [
+        "DAILY PAPER TRADING OPERATOR",
+        "",
+        f"Mode: {report['mode']}",
+        "execution_allowed: false",
+        "trading_allowed: false",
+        "",
+        "SCOREBOARD",
+        f"- Total records: {live['total_records']}",
+        f"- Resolved records: {live['resolved_count']}",
+        f"- Unresolved records: {live['unresolved_count']}",
+        f"- Outcomes: {live['outcomes']}",
+        "",
+        "METHODS",
+        f"- Methods: {methods['method_count']}",
+        f"- Method outcomes: {methods['outcome_count']}",
+        f"- By status: {methods['by_status']}",
+        "",
+        "PROMOTION REVIEW",
+    ]
+    for row in report["promotion_review"]["methods"]:
+        rate = "n/a" if row["helped_rate"] is None else f"{row['helped_rate']:.2f}"
+        lines.append(f"- {row['title']}: {row['recommendation']} (status={row['status']}, helped_rate={rate})")
+    lines.extend([
+        "",
+        "REAL TRADING LOCK",
+        f"- Ready for real trading: {str(real['ready_for_real_trading']).lower()}",
+    ])
+    for check in real["checks"]:
+        if not check["passed"]:
+            lines.append(f"- Blocked: {check['name']} - {check['detail']}")
+    lines.extend(["", "NEXT ACTION", f"- {report['next_action']}", ""])
+    return "\n".join(lines)
+
+
+def save_daily_trading_operator(directory: str | Path | None = None) -> Path:
+    output_dir = Path(directory or (Path.home() / ".ai-os" / "trading-reports"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / f"{datetime.now().astimezone().date().isoformat()}.md"
+    destination.write_text(render_daily_trading_operator(daily_trading_operator()), encoding="utf-8")
+    return destination
