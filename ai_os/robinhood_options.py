@@ -321,12 +321,12 @@ class AlpacaOptionsDataAdapter:
         params = {"feed": feed, **{key: value for key, value in filters.items() if value}}
         return self._get_json(f"/v1beta1/options/snapshots/{underlying_symbol.upper()}", params)
 
-    def select_long_call(
+    def long_call_candidates(
         self,
         underlying_symbol: str,
         policy: PaperPolicy | None = None,
         feed: str = "opra",
-    ) -> OptionQuote:
+    ) -> list[OptionQuote]:
         active_policy = policy or PaperPolicy()
         data = self.option_chain(underlying_symbol, feed=feed)
         snapshots = data.get("snapshots") or data
@@ -375,7 +375,56 @@ class AlpacaOptionsDataAdapter:
                 candidates.append(quote)
         if not candidates:
             raise MarketDataUnavailable("no_contract_passed_policy_filters")
-        return sorted(candidates, key=lambda item: (abs(item.premium - 175), item.spread))[0]
+        return candidates
+
+    def select_long_call(
+        self,
+        underlying_symbol: str,
+        policy: PaperPolicy | None = None,
+        feed: str = "opra",
+    ) -> OptionQuote:
+        return rank_candidates(self.long_call_candidates(underlying_symbol, policy, feed))[0]["quote"]
+
+
+def due_diligence_score(quote: OptionQuote, policy: PaperPolicy | None = None) -> dict[str, Any]:
+    active_policy = policy or PaperPolicy()
+    spread_pct = quote.spread / quote.mid if quote.mid else 1.0
+    premium_center = (active_policy.target_min_premium + active_policy.target_max_premium) / 2
+    budget_fit = max(0.0, 1.0 - abs(quote.premium - premium_center) / premium_center)
+    spread_score = max(0.0, 1.0 - spread_pct / active_policy.max_spread_pct)
+    volume_score = min(1.0, quote.volume / 1000)
+    oi_score = min(1.0, quote.open_interest / 5000)
+    dte_center = (active_policy.min_dte + active_policy.max_dte) / 2
+    dte_score = max(0.0, 1.0 - abs(quote.dte - dte_center) / dte_center)
+    delta = abs(quote.delta or 0.0)
+    delta_score = max(0.0, 1.0 - abs(delta - 0.35) / 0.35) if delta else 0.5
+    score = round(
+        30 * budget_fit + 25 * spread_score + 20 * volume_score + 15 * oi_score + 5 * dte_score + 5 * delta_score,
+        2,
+    )
+    return {
+        "symbol": quote.symbol,
+        "score": score,
+        "premium": quote.premium,
+        "spread_pct": round(spread_pct, 4),
+        "volume": quote.volume,
+        "open_interest": quote.open_interest,
+        "dte": quote.dte,
+        "delta": quote.delta,
+        "reasons": [
+            "premium closest to target budget center",
+            "tight spread preferred",
+            "higher option volume/open interest preferred",
+            "DTE near middle of 7-21 day window preferred",
+            "delta near 0.35 preferred for long-call balance",
+        ],
+    }
+
+
+def rank_candidates(candidates: list[OptionQuote], policy: PaperPolicy | None = None) -> list[dict[str, Any]]:
+    ranked = [{"quote": item, "due_diligence": due_diligence_score(item, policy)} for item in candidates]
+    ranked.sort(key=lambda item: item["due_diligence"]["score"], reverse=True)
+    return ranked
 
 
 def fixture_quote() -> OptionQuote:
@@ -456,13 +505,14 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
         return record
     adapter = AlpacaOptionsDataAdapter()
     rejected: list[dict[str, str]] = []
-    selected_quote: OptionQuote | None = None
+    candidates: list[OptionQuote] = []
     for item in symbols:
         try:
-            selected_quote = adapter.select_long_call(item)
-            break
+            candidates.extend(adapter.long_call_candidates(item))
         except MarketDataUnavailable as exc:
             rejected.append({"symbol": item, "reason": str(exc)})
+    ranked = rank_candidates(candidates)
+    selected_quote = ranked[0]["quote"] if ranked else None
     if selected_quote is None:
         record = {
             "record_type": "paper_options_cycle",
@@ -486,7 +536,9 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
     record["market_session"] = asdict(session)
     record["symbols_checked"] = symbols
     record["rejected_symbols"] = rejected
-    record["morning_summary"] = "One paper long call opened from the candidate watchlist because it fit the $100-$250 total premium budget and passed DTE, liquidity, spread, and buying-power gates."
+    record["due_diligence"] = ranked[0]["due_diligence"]
+    record["candidate_rankings"] = [item["due_diligence"] for item in ranked[:5]]
+    record["morning_summary"] = "One paper long call opened from the candidate watchlist because it ranked highest after due diligence and fit the $100-$250 total premium budget."
     record["sell_plan"] = _best_exit_plan(record)
     append_ledger({"record_type": "paper_options_enriched", **record}, ledger_path or DEFAULT_LEDGER)
     return record
@@ -525,6 +577,20 @@ def render_cycle_report(record: dict[str, Any]) -> str:
             f"DTE: {quote['dte']}",
         ])
     lines.append(f"Entry rejections: {', '.join(record['entry_rejections']) or 'none'}")
+    if record.get("due_diligence"):
+        diligence = record["due_diligence"]
+        lines.extend([
+            "",
+            "DUE DILIGENCE",
+            f"Score: {diligence['score']}/100",
+            f"Spread: {diligence['spread_pct']:.2%}",
+            f"Volume/OI: {diligence['volume']} / {diligence['open_interest']}",
+            f"Delta/DTE: {diligence['delta']} / {diligence['dte']}",
+        ])
+    if record.get("candidate_rankings"):
+        lines.extend(["", "TOP CANDIDATES"])
+        for item in record["candidate_rankings"]:
+            lines.append(f"- {item['symbol']}: score {item['score']}, premium ${item['premium']:.2f}, spread {item['spread_pct']:.2%}, DTE {item['dte']}")
     if record.get("order"):
         order = record["order"]
         lines.extend([

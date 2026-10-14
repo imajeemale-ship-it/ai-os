@@ -18,6 +18,8 @@ from ai_os.robinhood_options import (
     paper_trade_cycle,
     run_alpaca_cycle,
     run_fixture_cycle,
+    due_diligence_score,
+    rank_candidates,
     save_cycle_report,
     validate_entry,
 )
@@ -163,3 +165,22 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             self.assertIn("Candidate symbols checked: SPY, QQQ, AAPL", contents)
             self.assertIn("buy at most one contract total", contents)
             self.assertIn("Budget after selected contract", contents)
+
+    def test_due_diligence_ranks_best_candidate_not_first_candidate(self):
+        base = fixture_quote()
+        weak = OptionQuote(**{**base.__dict__, "symbol": "SPY", "bid": 1.70, "ask": 2.05, "volume": 80, "open_interest": 150, "delta": 0.15})
+        strong = OptionQuote(**{**base.__dict__, "symbol": "QQQ", "bid": 1.69, "ask": 1.75, "volume": 2000, "open_interest": 7000, "delta": 0.35, "dte": 14})
+        ranked = rank_candidates([weak, strong])
+        self.assertEqual(ranked[0]["quote"].symbol, "QQQ")
+        self.assertGreater(due_diligence_score(strong)["score"], due_diligence_score(weak)["score"])
+
+    def test_report_includes_due_diligence_and_top_candidates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "latest.md"
+            record = run_fixture_cycle(Path(directory) / "ledger.jsonl")
+            record["due_diligence"] = due_diligence_score(fixture_quote())
+            record["candidate_rankings"] = [record["due_diligence"]]
+            path = save_cycle_report(record, report)
+            contents = path.read_text()
+            self.assertIn("DUE DILIGENCE", contents)
+            self.assertIn("TOP CANDIDATES", contents)
