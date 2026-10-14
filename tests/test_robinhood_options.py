@@ -91,16 +91,16 @@ class FakeResponse:
 
 
 class RobinhoodOptionsMarketDataTests(unittest.TestCase):
-    def test_market_session_separates_equity_24h_from_options_hours(self):
+    def test_market_session_only_tracks_options_hours(self):
         eastern = ZoneInfo("America/New_York")
         overnight = market_session(datetime(2026, 10, 14, 2, 0, tzinfo=eastern))
         regular = market_session(datetime(2026, 10, 14, 10, 0, tzinfo=eastern))
         closed = market_session(datetime(2026, 10, 17, 12, 0, tzinfo=eastern))
-        self.assertTrue(overnight.equity_24h_open)
         self.assertFalse(overnight.options_open)
-        self.assertEqual(overnight.reason, "equity_24h_watch_only")
+        self.assertEqual(overnight.reason, "options_market_closed")
         self.assertTrue(regular.options_open)
-        self.assertFalse(closed.equity_24h_open)
+        self.assertEqual(regular.reason, "regular_options_session")
+        self.assertFalse(closed.options_open)
 
     def test_alpaca_adapter_requires_credentials(self):
         with self.assertRaises(MarketDataUnavailable):
@@ -139,4 +139,4 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             record = run_alpaca_cycle("SPY", ledger)
             if record["status"] == "rejected":
                 self.assertFalse(record["live_trading_allowed"])
-                self.assertIn(record["entry_rejections"][0], {"equity_24h_watch_only", "market_closed"})
+                self.assertEqual(record["entry_rejections"][0], "options_market_closed")

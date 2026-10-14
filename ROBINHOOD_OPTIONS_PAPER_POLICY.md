@@ -8,7 +8,7 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 - One open position maximum; one new position daily; no leverage, margin borrowing, uncovered options, or live orders.
 - Prefer liquid stocks/ETFs and tight bid-ask spreads. Primary experiment: 7–21 days to expiration (DTE); comparison: 30 DTE. Verify actual contract specifications.
 - Simulated exit experiment: compare loss thresholds of -20% and -30%, and profit thresholds of +30% and +50%, accounting for spreads/slippage. These are test hypotheses, not guaranteed fills or maximum loss.
-- Record intraday quote freshness, volume/open interest, spread, implied volatility, time decay, and overnight gap risk; reject stale or thinly traded contracts.
+- Record intraday quote freshness, volume/open interest, spread, implied volatility, and time decay; reject stale or thinly traded contracts.
 - Block entry if market data stale, quotes missing, spread excessive, contract illiquid, or available paper buying power insufficient.
 
 ## Exercise gate
@@ -30,10 +30,10 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 - Fixture data is clearly labeled; it is not a profitability claim or broker-sourced market data.
 
 ## Verified milestone 2
-- Added a market-session clock that separates Robinhood-style 24-hour stock/ETF watch sessions from options trading sessions.
+- Added a regular-options-hours market-session gate.
 - Added a read-only Alpaca options-chain adapter for real market-data paper cycles when credentials are present.
 - Added CLI support: `python3 -m ai_os robinhood-options-paper --provider alpaca --symbol SPY`.
-- Outside valid options hours, the real-data cycle logs a rejected paper opportunity instead of forcing a stale or invalid trade.
+- Outside valid options hours, the real-data cycle logs `options_market_closed` instead of forcing a stale or invalid trade.
 
 ## Next action
 Add credentials through local environment only, run the Alpaca real-data cycle during options market hours, then schedule repeated paper scans before any live Robinhood integration. Keep this separate from Supervizor Telegram crypto signals.

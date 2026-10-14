@@ -27,9 +27,7 @@ class MarketDataUnavailable(RuntimeError):
 @dataclass(frozen=True)
 class MarketSession:
     checked_at: str
-    equity_24h_open: bool
     options_open: bool
-    late_close_options_open: bool
     reason: str
 
 
@@ -114,26 +112,11 @@ def market_session(now: datetime | None = None) -> MarketSession:
     eastern = current.astimezone(EASTERN)
     weekday = eastern.weekday()
     current_time = eastern.time()
-    regular_options = weekday < 5 and time(9, 30) <= current_time <= time(16, 0)
-    late_options = weekday < 5 and time(9, 30) <= current_time <= time(16, 15)
-    equity_24h = (
-        (weekday == 6 and current_time >= time(20, 0))
-        or weekday in {0, 1, 2, 3}
-        or (weekday == 4 and current_time <= time(20, 0))
-    )
-    if regular_options:
-        reason = "regular_options_session"
-    elif late_options:
-        reason = "late_close_options_only"
-    elif equity_24h:
-        reason = "equity_24h_watch_only"
-    else:
-        reason = "market_closed"
+    options_open = weekday < 5 and time(9, 30) <= current_time <= time(16, 0)
+    reason = "regular_options_session" if options_open else "options_market_closed"
     return MarketSession(
         checked_at=eastern.isoformat(timespec="seconds"),
-        equity_24h_open=equity_24h,
-        options_open=regular_options,
-        late_close_options_open=late_options,
+        options_open=options_open,
         reason=reason,
     )
 
@@ -402,7 +385,7 @@ def run_fixture_cycle(ledger_path: str | Path | None = None) -> dict[str, Any]:
 
 def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None) -> dict[str, Any]:
     session = market_session()
-    if not session.late_close_options_open:
+    if not session.options_open:
         record = {
             "record_type": "paper_options_cycle",
             "created_at": utc_now(),
