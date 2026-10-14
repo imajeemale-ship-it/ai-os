@@ -29,5 +29,11 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 - Tests cover premium cap, DTE window, spread/liquidity gates, exercise affordability, rejected opportunities, and durable trade records.
 - Fixture data is clearly labeled; it is not a profitability claim or broker-sourced market data.
 
+## Verified milestone 2
+- Added a market-session clock that separates Robinhood-style 24-hour stock/ETF watch sessions from options trading sessions.
+- Added a read-only Alpaca options-chain adapter for real market-data paper cycles when credentials are present.
+- Added CLI support: `python3 -m ai_os robinhood-options-paper --provider alpaca --symbol SPY`.
+- Outside valid options hours, the real-data cycle logs a rejected paper opportunity instead of forcing a stale or invalid trade.
+
 ## Next action
-Connect a real market-data adapter and validate an actual supported options simulator/API before selecting broker integration. Keep this separate from Supervizor Telegram crypto signals.
+Add credentials through local environment only, run the Alpaca real-data cycle during options market hours, then schedule repeated paper scans before any live Robinhood integration. Keep this separate from Supervizor Telegram crypto signals.

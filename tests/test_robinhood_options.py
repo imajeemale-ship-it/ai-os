@@ -3,13 +3,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from ai_os.robinhood_options import (
+    AlpacaOptionsDataAdapter,
+    MarketDataUnavailable,
     OptionQuote,
     PaperAccount,
     PaperPolicy,
     exercise_affordability,
     fixture_quote,
+    market_session,
     paper_trade_cycle,
+    run_alpaca_cycle,
     run_fixture_cycle,
     validate_entry,
 )
@@ -67,3 +74,69 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
+class RobinhoodOptionsMarketDataTests(unittest.TestCase):
+    def test_market_session_separates_equity_24h_from_options_hours(self):
+        eastern = ZoneInfo("America/New_York")
+        overnight = market_session(datetime(2026, 10, 14, 2, 0, tzinfo=eastern))
+        regular = market_session(datetime(2026, 10, 14, 10, 0, tzinfo=eastern))
+        closed = market_session(datetime(2026, 10, 17, 12, 0, tzinfo=eastern))
+        self.assertTrue(overnight.equity_24h_open)
+        self.assertFalse(overnight.options_open)
+        self.assertEqual(overnight.reason, "equity_24h_watch_only")
+        self.assertTrue(regular.options_open)
+        self.assertFalse(closed.equity_24h_open)
+
+    def test_alpaca_adapter_requires_credentials(self):
+        with self.assertRaises(MarketDataUnavailable):
+            AlpacaOptionsDataAdapter(key_id="", secret_key="")
+
+    def test_alpaca_adapter_selects_policy_passing_call(self):
+        payload = {
+            "snapshots": {
+                "SPY261030C00590000": {
+                    "details": {"type": "call", "strike_price": 590, "expiration_date": "2026-10-30", "dte": 16},
+                    "latestQuote": {"bp": 1.42, "ap": 1.5, "t": "2026-10-14T14:35:00Z"},
+                    "latestTrade": {"p": 1.46},
+                    "greeks": {"delta": 0.36, "gamma": 0.041, "theta": -0.092, "vega": 0.184},
+                    "impliedVolatility": 0.218,
+                    "volume": 842,
+                    "openInterest": 3910,
+                    "underlying": {"price": 585.2, "volume": 42100000},
+                }
+            }
+        }
+        seen = {}
+
+        def fake_opener(request, timeout):
+            seen["url"] = request.full_url
+            return FakeResponse(payload)
+
+        adapter = AlpacaOptionsDataAdapter("key", "secret", opener=fake_opener)
+        quote = adapter.select_long_call("spy")
+        self.assertEqual(quote.symbol, "SPY")
+        self.assertEqual(quote.premium, 150.0)
+        self.assertIn("/v1beta1/options/snapshots/SPY", seen["url"])
+
+    def test_real_data_cycle_blocks_outside_options_hours_before_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "paper_trades.jsonl"
+            record = run_alpaca_cycle("SPY", ledger)
+            if record["status"] == "rejected":
+                self.assertFalse(record["live_trading_allowed"])
+                self.assertIn(record["entry_rejections"][0], {"equity_24h_watch_only", "market_closed"})
