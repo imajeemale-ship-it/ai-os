@@ -356,6 +356,13 @@ class SignalWatchTests(unittest.TestCase):
         self.assertFalse(sent)
         self.assertEqual(error, "missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
 
+    def test_telegram_channel_event_uses_marked_peer_id(self):
+        entity = type("Entity", (), {"id": 1179083024})()
+        marked_id = -1001179083024
+        event_entities = {marked_id: entity}
+        self.assertIs(event_entities.get(marked_id), entity)
+        self.assertIsNone(event_entities.get(entity.id))
+
     def test_paper_eligibility_accepts_fresh_spot_signal(self):
         result = watch.paper_eligibility(
             "Wallstreet Queen Official®",

@@ -1275,7 +1275,7 @@ def _read_telethon_env(path: Path) -> dict[str, str]:
 
 async def run_watch(args: argparse.Namespace) -> int:
     try:
-        from telethon import TelegramClient, events
+        from telethon import TelegramClient, events, utils
     except ImportError as error:
         raise RuntimeError("Telethon missing; install it into this Python environment.") from error
 
@@ -1292,16 +1292,21 @@ async def run_watch(args: argparse.Namespace) -> int:
         env["TELEGRAM_API_HASH"],
     )
     dialogs: dict[int, Any] = {}
+    event_entities: dict[int, Any] = {}
     source_labels: dict[int, str] = {}
 
     async with client:
         for chat in args.chat:
             entity = await client.get_entity(chat)
             dialogs[int(entity.id)] = entity
-            source_labels[int(entity.id)] = getattr(entity, "title", None) or getattr(entity, "username", None) or str(chat)
+            source = getattr(entity, "title", None) or getattr(entity, "username", None) or str(chat)
+            source_labels[int(entity.id)] = source
+            marked_id = int(utils.get_peer_id(entity))
+            event_entities[marked_id] = entity
+            source_labels[marked_id] = source
 
         async def handle_message(event):
-            entity = dialogs.get(int(event.chat_id))
+            entity = event_entities.get(int(event.chat_id))
             if entity is None:
                 return
             text = event.raw_text or ""
