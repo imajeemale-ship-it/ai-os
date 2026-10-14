@@ -17,6 +17,7 @@ from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.risk_limits import load_risk_limits, render_risk_limits_draft, render_risk_limits_questions, risk_limits_draft, risk_limits_next_questions, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
+from ai_os.robinhood_options import render_cycle_report, run_fixture_cycle
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
@@ -92,6 +93,8 @@ def parser() -> argparse.ArgumentParser:
     preview.add_argument("--scoreboard")
     daily_trading = commands.add_parser("trading-daily-operator", help="Run the paper trading daily operator report")
     daily_trading.add_argument("--save", action="store_true")
+    rh_options = commands.add_parser("robinhood-options-paper", help="Run one paper-only long-call options fixture cycle")
+    rh_options.add_argument("--ledger", help="Destination JSONL ledger path; defaults to ~/.ai-os/robinhood-options/paper_trades.jsonl")
     broker_init = commands.add_parser("broker-inventory-init", help="Create a local starter broker tool inventory")
     broker_init.add_argument("--path", help="Destination JSON path; defaults to ~/.ai-os/broker-tools.json")
     broker_init.add_argument("--overwrite", action="store_true")
@@ -227,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_daily_trading_operator())})
             else:
                 print(render_daily_trading_operator(daily_trading_operator()))
+        elif args.command == "robinhood-options-paper":
+            print(render_cycle_report(run_fixture_cycle(args.ledger)))
         elif args.command == "broker-inventory-init":
             _print(write_broker_tool_inventory(args.path, args.overwrite))
         elif args.command == "broker-classify":
