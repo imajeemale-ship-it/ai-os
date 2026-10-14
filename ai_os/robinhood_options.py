@@ -16,7 +16,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 CONTRACT_MULTIPLIER = 100
-DEFAULT_LEDGER = Path.home() / ".ai-os" / "robinhood-options" / "paper_trades.jsonl"
+DEFAULT_OPTIONS_DIR = Path.home() / ".ai-os" / "robinhood-options"
+DEFAULT_LEDGER = DEFAULT_OPTIONS_DIR / "paper_trades.jsonl"
+DEFAULT_REPORT = DEFAULT_OPTIONS_DIR / "latest_morning_report.md"
+ALPACA_SECRET_FILE = Path.home() / ".ai-os" / "secrets" / "alpaca.env"
 EASTERN = ZoneInfo("America/New_York")
 
 
@@ -144,6 +147,19 @@ def _first_present(data: dict[str, Any], names: tuple[str, ...], default: Any = 
         if name in data and data[name] is not None:
             return data[name]
     return default
+
+
+def _load_env_file(path: Path = ALPACA_SECRET_FILE) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip("'\"")
+    return values
 
 
 def validate_entry(quote: OptionQuote, account: PaperAccount, policy: PaperPolicy) -> list[str]:
@@ -275,8 +291,15 @@ class AlpacaOptionsDataAdapter:
     base_url = "https://data.alpaca.markets"
 
     def __init__(self, key_id: str | None = None, secret_key: str | None = None, opener: Any | None = None):
-        self.key_id = key_id or os.environ.get("APCA_API_KEY_ID") or os.environ.get("ALPACA_API_KEY_ID")
-        self.secret_key = secret_key or os.environ.get("APCA_API_SECRET_KEY") or os.environ.get("ALPACA_API_SECRET_KEY")
+        file_env = _load_env_file()
+        self.key_id = (
+            key_id or os.environ.get("APCA_API_KEY_ID") or os.environ.get("ALPACA_API_KEY_ID")
+            or file_env.get("APCA_API_KEY_ID") or file_env.get("ALPACA_API_KEY_ID")
+        )
+        self.secret_key = (
+            secret_key or os.environ.get("APCA_API_SECRET_KEY") or os.environ.get("ALPACA_API_SECRET_KEY")
+            or file_env.get("APCA_API_SECRET_KEY") or file_env.get("ALPACA_API_SECRET_KEY")
+        )
         self.opener = opener or urllib.request.urlopen
         if not self.key_id or not self.secret_key:
             raise MarketDataUnavailable("missing_alpaca_market_data_credentials")
@@ -383,8 +406,37 @@ def run_fixture_cycle(ledger_path: str | Path | None = None) -> dict[str, Any]:
     return paper_trade_cycle(fixture_quote(), account, exit_bid=2.05, ledger_path=ledger_path)
 
 
+def _normalize_symbols(symbols: str | list[str] | tuple[str, ...]) -> list[str]:
+    if isinstance(symbols, str):
+        raw = symbols.split(",")
+    else:
+        raw = list(symbols)
+    result = [item.strip().upper() for item in raw if item.strip()]
+    return result or ["SPY"]
+
+
+def _best_exit_plan(record: dict[str, Any]) -> str:
+    if not record.get("order"):
+        return "No sell plan because no paper position was opened."
+    exit_scores = record.get("exit_scores") or []
+    profit_30 = next((item for item in exit_scores if item["profit_target_pct"] == 0.30 and item["loss_limit_pct"] == -0.20), None)
+    profit_50 = next((item for item in exit_scores if item["profit_target_pct"] == 0.50 and item["loss_limit_pct"] == -0.20), None)
+    quote = record["quote"]
+    order = record["order"]
+    target_30 = round(order["fill_price"] * 1.30, 2)
+    target_50 = round(order["fill_price"] * 1.50, 2)
+    stop_20 = round(order["fill_price"] * 0.80, 2)
+    return (
+        f"Primary sell plan: take profit near +30% (${target_30}/contract bid) or cut near -20% (${stop_20}/contract bid). "
+        f"Stretch target: +50% (${target_50}/contract bid). Current rule status: "
+        f"30%={profit_30['action'] if profit_30 else 'unknown'}, 50%={profit_50['action'] if profit_50 else 'unknown'}. "
+        f"Do not exercise; required exercise cash is ${quote['strike'] * CONTRACT_MULTIPLIER:.2f}."
+    )
+
+
 def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None) -> dict[str, Any]:
     session = market_session()
+    symbols = _normalize_symbols(symbol)
     if not session.options_open:
         record = {
             "record_type": "paper_options_cycle",
@@ -394,17 +446,57 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
             "status": "rejected",
             "entry_rejections": [session.reason],
             "market_session": asdict(session),
+            "symbols_checked": symbols,
             "quote": None,
             "order": None,
             "exit_scores": [],
+            "morning_summary": "No paper option was bought because the options market was closed.",
         }
         append_ledger(record, ledger_path or DEFAULT_LEDGER)
         return record
-    quote = AlpacaOptionsDataAdapter().select_long_call(symbol)
+    adapter = AlpacaOptionsDataAdapter()
+    rejected: list[dict[str, str]] = []
+    selected_quote: OptionQuote | None = None
+    for item in symbols:
+        try:
+            selected_quote = adapter.select_long_call(item)
+            break
+        except MarketDataUnavailable as exc:
+            rejected.append({"symbol": item, "reason": str(exc)})
+    if selected_quote is None:
+        record = {
+            "record_type": "paper_options_cycle",
+            "created_at": utc_now(),
+            "mode": "paper_only_real_data_blocked",
+            "live_trading_allowed": False,
+            "status": "rejected",
+            "entry_rejections": ["no_symbol_passed_filters"],
+            "market_session": asdict(session),
+            "symbols_checked": symbols,
+            "rejected_symbols": rejected,
+            "quote": None,
+            "order": None,
+            "exit_scores": [],
+            "morning_summary": "No paper option was bought because no checked symbol passed the filters.",
+        }
+        append_ledger(record, ledger_path or DEFAULT_LEDGER)
+        return record
     account = PaperAccount(buying_power=1000.0, settled_cash=5000.0)
-    record = paper_trade_cycle(quote, account, ledger_path=ledger_path)
+    record = paper_trade_cycle(selected_quote, account, ledger_path=ledger_path)
     record["market_session"] = asdict(session)
+    record["symbols_checked"] = symbols
+    record["rejected_symbols"] = rejected
+    record["morning_summary"] = "Paper long call opened because the selected contract passed premium, DTE, liquidity, spread, and buying-power gates."
+    record["sell_plan"] = _best_exit_plan(record)
+    append_ledger({"record_type": "paper_options_enriched", **record}, ledger_path or DEFAULT_LEDGER)
     return record
+
+
+def save_cycle_report(record: dict[str, Any], path: str | Path = DEFAULT_REPORT) -> Path:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(render_cycle_report(record) + "\n", encoding="utf-8")
+    return destination
 
 
 def render_cycle_report(record: dict[str, Any]) -> str:
@@ -419,6 +511,10 @@ def render_cycle_report(record: dict[str, Any]) -> str:
     if record.get("market_session"):
         session = record["market_session"]
         lines.append(f"Market session: {session['reason']} at {session['checked_at']}")
+    if record.get("symbols_checked"):
+        lines.append(f"Symbols checked: {', '.join(record['symbols_checked'])}")
+    if record.get("morning_summary"):
+        lines.extend(["", "WHY", record["morning_summary"]])
     if quote:
         lines.extend([
             f"Contract: {quote['symbol']} {quote['expiration']} {quote['strike']}C",
@@ -433,6 +529,11 @@ def render_cycle_report(record: dict[str, Any]) -> str:
             f"Estimated P&L at mark: ${record['estimated_net_pnl']:.2f}",
             f"Exit status: {record['selected_exit_status']}",
         ])
+    if record.get("sell_plan"):
+        lines.extend(["", "WHEN TO SELL", record["sell_plan"]])
+    if record.get("rejected_symbols"):
+        lines.extend(["", "REJECTED SYMBOLS"])
+        lines.extend(f"- {item['symbol']}: {item['reason']}" for item in record["rejected_symbols"])
     if record.get("exercise_gate"):
         gate = record["exercise_gate"]
         lines.extend([

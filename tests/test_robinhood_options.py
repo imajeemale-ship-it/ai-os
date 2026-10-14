@@ -18,6 +18,7 @@ from ai_os.robinhood_options import (
     paper_trade_cycle,
     run_alpaca_cycle,
     run_fixture_cycle,
+    save_cycle_report,
     validate_entry,
 )
 
@@ -140,3 +141,14 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             if record["status"] == "rejected":
                 self.assertFalse(record["live_trading_allowed"])
                 self.assertEqual(record["entry_rejections"][0], "options_market_closed")
+
+    def test_save_cycle_report_writes_morning_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "latest.md"
+            record = run_fixture_cycle(Path(directory) / "ledger.jsonl")
+            record["morning_summary"] = "Fixture bought because gates passed."
+            record["sell_plan"] = "Sell at +30% or cut at -20%."
+            path = save_cycle_report(record, report)
+            contents = path.read_text()
+            self.assertIn("WHY", contents)
+            self.assertIn("WHEN TO SELL", contents)

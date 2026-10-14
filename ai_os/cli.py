@@ -17,11 +17,13 @@ from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.risk_limits import load_risk_limits, render_risk_limits_draft, render_risk_limits_questions, risk_limits_draft, risk_limits_next_questions, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
-from ai_os.robinhood_options import render_cycle_report, run_alpaca_cycle, run_fixture_cycle
+from ai_os.robinhood_options import render_cycle_report, run_alpaca_cycle, run_fixture_cycle, save_cycle_report
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
+    install_robinhood_options_paper, robinhood_options_paper_status,
     uninstall_daily_brief, uninstall_daily_cycle, uninstall_daily_trading_operator,
+    uninstall_robinhood_options_paper,
 )
 from ai_os.store import AIOS
 from ai_os.trading_policy import render_live_policy_draft, save_live_policy_draft, live_policy_draft
@@ -97,6 +99,7 @@ def parser() -> argparse.ArgumentParser:
     rh_options.add_argument("--ledger", help="Destination JSONL ledger path; defaults to ~/.ai-os/robinhood-options/paper_trades.jsonl")
     rh_options.add_argument("--provider", choices=["fixture", "alpaca"], default="fixture")
     rh_options.add_argument("--symbol", default="SPY")
+    rh_options.add_argument("--save-report", action="store_true", help="Save latest morning report under ~/.ai-os/robinhood-options/")
     broker_init = commands.add_parser("broker-inventory-init", help="Create a local starter broker tool inventory")
     broker_init.add_argument("--path", help="Destination JSON path; defaults to ~/.ai-os/broker-tools.json")
     broker_init.add_argument("--overwrite", action="store_true")
@@ -134,6 +137,12 @@ def parser() -> argparse.ArgumentParser:
     trading_install = schedule.add_parser("trading-install", help="Install local trading-operator LaunchAgent")
     trading_install.add_argument("--hour", type=int, default=8)
     trading_install.add_argument("--minute", type=int, default=30)
+    schedule.add_parser("options-status", help="Show Robinhood options paper schedule status")
+    schedule.add_parser("options-uninstall", help="Remove Robinhood options paper schedule")
+    options_install = schedule.add_parser("options-install", help="Install morning Robinhood options paper scan")
+    options_install.add_argument("--hour", type=int, default=9)
+    options_install.add_argument("--minute", type=int, default=35)
+    options_install.add_argument("--symbols", default="SPY,QQQ,AAPL")
     cycle_install = schedule.add_parser("cycle-install", help="Install a local model-cycle LaunchAgent")
     cycle_install.add_argument("--hour", type=int, default=15)
     cycle_install.add_argument("--minute", type=int, default=5)
@@ -234,9 +243,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(render_daily_trading_operator(daily_trading_operator()))
         elif args.command == "robinhood-options-paper":
             if args.provider == "alpaca":
-                print(render_cycle_report(run_alpaca_cycle(args.symbol, args.ledger)))
+                record = run_alpaca_cycle(args.symbol, args.ledger)
             else:
-                print(render_cycle_report(run_fixture_cycle(args.ledger)))
+                record = run_fixture_cycle(args.ledger)
+            if args.save_report:
+                _print({"saved_to": str(save_cycle_report(record)), "status": record.get("status")})
+            else:
+                print(render_cycle_report(record))
         elif args.command == "broker-inventory-init":
             _print(write_broker_tool_inventory(args.path, args.overwrite))
         elif args.command == "broker-classify":
@@ -288,6 +301,12 @@ def main(argv: list[str] | None = None) -> int:
             _print(daily_trading_operator_status())
         elif args.command == "schedule" and args.action == "trading-uninstall":
             _print(uninstall_daily_trading_operator())
+        elif args.command == "schedule" and args.action == "options-install":
+            _print(install_robinhood_options_paper(args.hour, args.minute, args.symbols))
+        elif args.command == "schedule" and args.action == "options-status":
+            _print(robinhood_options_paper_status())
+        elif args.command == "schedule" and args.action == "options-uninstall":
+            _print(uninstall_robinhood_options_paper())
         elif args.command == "plan":
             _print(Planner(store).plan())
         elif args.command == "model-plan":
