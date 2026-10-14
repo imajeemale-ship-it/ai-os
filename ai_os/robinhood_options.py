@@ -481,12 +481,12 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
         }
         append_ledger(record, ledger_path or DEFAULT_LEDGER)
         return record
-    account = PaperAccount(buying_power=1000.0, settled_cash=5000.0)
+    account = PaperAccount(buying_power=250.0, settled_cash=5000.0)
     record = paper_trade_cycle(selected_quote, account, ledger_path=ledger_path)
     record["market_session"] = asdict(session)
     record["symbols_checked"] = symbols
     record["rejected_symbols"] = rejected
-    record["morning_summary"] = "Paper long call opened because the selected contract passed premium, DTE, liquidity, spread, and buying-power gates."
+    record["morning_summary"] = "One paper long call opened from the candidate watchlist because it fit the $100-$250 total premium budget and passed DTE, liquidity, spread, and buying-power gates."
     record["sell_plan"] = _best_exit_plan(record)
     append_ledger({"record_type": "paper_options_enriched", **record}, ledger_path or DEFAULT_LEDGER)
     return record
@@ -512,13 +512,16 @@ def render_cycle_report(record: dict[str, Any]) -> str:
         session = record["market_session"]
         lines.append(f"Market session: {session['reason']} at {session['checked_at']}")
     if record.get("symbols_checked"):
-        lines.append(f"Symbols checked: {', '.join(record['symbols_checked'])}")
+        lines.append(f"Candidate symbols checked: {', '.join(record['symbols_checked'])}")
+        lines.append("Budget rule: buy at most one contract total, $100-$250 premium.")
     if record.get("morning_summary"):
         lines.extend(["", "WHY", record["morning_summary"]])
     if quote:
+        premium = quote['ask'] * CONTRACT_MULTIPLIER
         lines.extend([
-            f"Contract: {quote['symbol']} {quote['expiration']} {quote['strike']}C",
-            f"Premium: ${quote['ask'] * CONTRACT_MULTIPLIER:.2f}",
+            f"Selected paper contract: {quote['symbol']} {quote['expiration']} {quote['strike']}C",
+            f"Premium: ${premium:.2f}",
+            f"Budget after selected contract: ${250.0 - premium:.2f}",
             f"DTE: {quote['dte']}",
         ])
     lines.append(f"Entry rejections: {', '.join(record['entry_rejections']) or 'none'}")

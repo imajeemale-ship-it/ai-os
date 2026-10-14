@@ -152,3 +152,14 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             contents = path.read_text()
             self.assertIn("WHY", contents)
             self.assertIn("WHEN TO SELL", contents)
+
+    def test_report_makes_watchlist_budget_realistic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "latest.md"
+            record = run_fixture_cycle(Path(directory) / "ledger.jsonl")
+            record["symbols_checked"] = ["SPY", "QQQ", "AAPL"]
+            path = save_cycle_report(record, report)
+            contents = path.read_text()
+            self.assertIn("Candidate symbols checked: SPY, QQQ, AAPL", contents)
+            self.assertIn("buy at most one contract total", contents)
+            self.assertIn("Budget after selected contract", contents)

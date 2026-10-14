@@ -5,7 +5,7 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 ## Scope
 - Long calls only; buy to open; one standard 100-share contract per trade.
 - Premium paid inclusive of opening fees <= $250, target $100–$250; reject orders above cap.
-- One open position maximum; one new position daily; no leverage, margin borrowing, uncovered options, or live orders.
+- One open position maximum; one new position daily; candidate watchlist scanning is not permission to buy multiple options. No leverage, margin borrowing, uncovered options, or live orders.
 - Prefer liquid stocks/ETFs and tight bid-ask spreads. Primary experiment: 7–21 days to expiration (DTE); comparison: 30 DTE. Verify actual contract specifications.
 - Simulated exit experiment: compare loss thresholds of -20% and -30%, and profit thresholds of +30% and +50%, accounting for spreads/slippage. These are test hypotheses, not guaranteed fills or maximum loss.
 - Record intraday quote freshness, volume/open interest, spread, implied volatility, and time decay; reject stale or thinly traded contracts.
