@@ -1,8 +1,9 @@
 [Unit]
-Description=Run AI-OS options research baskets at 10:05 Eastern
+Description=Scan AI-OS options research baskets every 15 minutes during market hours
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 10:05:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 09:35,50:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10..15:05,20,35,50:00 America/New_York
 Persistent=true
 RandomizedDelaySec=0
 AccuracySec=1s
