@@ -11,11 +11,10 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 - Record intraday quote freshness, volume/open interest, spread, implied volatility, and time decay; reject stale or thinly traded contracts.
 - Block entry if market data stale, quotes missing, spread excessive, contract illiquid, or available paper buying power insufficient.
 
-## Exercise gate
-- No automatic exercise, including at expiry; warn that broker automatic exercise/assignment rules must be verified before any live use.
-- Required cash for a standard call exercise = strike * 100, plus fees; compare to available settled cash and reserves.
-- Also assess current share price versus strike, remaining extrinsic value, expiration, and post-exercise concentration.
-- A decayed out-of-the-money call is not rescued by exercise; sale or expiration may be preferable.
+## Position disposition
+- This strategy trades option premium only and closes positions by selling the option contract.
+- Exercise is outside strategy scope and remains disabled, including at expiry.
+- Positions must be closed before broker exercise deadlines; a decayed option is never rescued through exercise.
 
 ## Verification acceptance
 - One genuine timestamped option chain/quote, simulated order with fill/slippage, position tracking, risk-gate decisions, exit, net P&L, and durable log.

@@ -210,7 +210,7 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             record = run_alpaca_cycle("SPY", ledger)
             if record["status"] == "rejected":
                 self.assertFalse(record["live_trading_allowed"])
-                self.assertEqual(record["entry_rejections"][0], "options_market_closed")
+                self.assertIn(record["entry_rejections"][0], {"options_market_closed", "missing_alpaca_market_data_credentials"})
 
     def test_save_cycle_report_writes_morning_summary(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -795,7 +795,7 @@ def _best_exit_plan(record: dict[str, Any]) -> str:
         f"Primary sell plan: take profit near +30% (${target_30}/contract bid) or cut near -20% (${stop_20}/contract bid). "
         f"Stretch target: +50% (${target_50}/contract bid). Current rule status: "
         f"30%={profit_30['action'] if profit_30 else 'unknown'}, 50%={profit_50['action'] if profit_50 else 'unknown'}. "
-        f"Do not exercise; required exercise cash is ${quote['strike'] * CONTRACT_MULTIPLIER:.2f}."
+        "This strategy trades premium only and exits by selling the option contract."
     )
 
 
@@ -981,14 +981,5 @@ def render_cycle_report(record: dict[str, Any]) -> str:
     if record.get("rejected_symbols"):
         lines.extend(["", "REJECTED SYMBOLS"])
         lines.extend(f"- {item['symbol']}: {item['reason']}" for item in record["rejected_symbols"])
-    if record.get("exercise_gate"):
-        gate = record["exercise_gate"]
-        lines.extend([
-            "",
-            "EXERCISE GATE",
-            f"Required cash: ${gate['required_cash']:.2f}",
-            f"Settled cash: ${gate['settled_cash']:.2f}",
-            f"Affordable: {str(gate['affordable']).lower()}",
-            "Auto exercise allowed: false",
-        ])
+    lines.extend(["", "POSITION POLICY", "Trade premium only; close by selling the option contract. Exercise is disabled."])
     return "\n".join(lines)
