@@ -528,7 +528,25 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
         }
         append_ledger(record, ledger_path or DEFAULT_LEDGER)
         return record
-    adapter = AlpacaOptionsDataAdapter()
+    try:
+        adapter = AlpacaOptionsDataAdapter()
+    except MarketDataUnavailable as exc:
+        record = {
+            "record_type": "paper_options_cycle",
+            "created_at": utc_now(),
+            "mode": "paper_only_real_data_blocked",
+            "live_trading_allowed": False,
+            "status": "rejected",
+            "entry_rejections": [str(exc)],
+            "market_session": asdict(session),
+            "symbols_checked": symbols,
+            "quote": None,
+            "order": None,
+            "exit_scores": [],
+            "morning_summary": "No paper option was bought because real market-data credentials were unavailable.",
+        }
+        append_ledger(record, ledger_path or DEFAULT_LEDGER)
+        return record
     rejected: list[dict[str, str]] = []
     candidates: list[OptionQuote] = []
     for item in symbols:
