@@ -209,11 +209,23 @@ def normalized_side(row: sqlite3.Row) -> str:
     return "long"
 
 
-ALLOWED_SOURCES = {"whales crypto guide", "wallstreet queen official", "hedge x fund 025"}
+ALLOWED_SOURCES = {"whales crypto guide", "wallstreet queen official", "crypto best futures signals"}
+MAX_TRADES_PER_SOURCE = 2
+TOTAL_TRADE_LIMIT = 6
+# Conservative illustrative costs, not exchange-confirmed execution costs.
+ROUND_TRIP_COST_PCT = 0.4
+
+
+def source_key(source: str) -> str:
+    return source.casefold().strip().replace("®", "")
 
 
 def is_allowed_source(source: str) -> bool:
-    return source.casefold().strip().replace("®", "") in ALLOWED_SOURCES
+    return source_key(source) in ALLOWED_SOURCES
+
+
+def net_pnl_pct(entry: float, exit_price: float, size_pct: float = 100.0) -> float:
+    return (((exit_price - entry) / entry) * 100 - ROUND_TRIP_COST_PCT) * (size_pct / 100)
 
 
 def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
@@ -230,8 +242,15 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         """
     ).fetchall()
     events: list[PaperEvent] = []
+    counts = {source: 0 for source in ALLOWED_SOURCES}
+    for existing in db.execute("SELECT source FROM paper_positions"):
+        key = source_key(existing["source"])
+        if key in counts:
+            counts[key] += 1
+    total = sum(counts.values())
     for row in rows:
-        if not is_allowed_source(row["source"]):
+        key = source_key(row["source"])
+        if key not in counts or counts[key] >= MAX_TRADES_PER_SOURCE or total >= TOTAL_TRADE_LIMIT:
             continue
         side = normalized_side(row)
         if side == "short":
@@ -284,6 +303,8 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         policy = watch.source_policy(row["source"])
         note = f"paper open at observed quote; decision {decision['decision']} {decision['overall_score']:.1f}/100; conviction {float(conviction):.1f}/100; {policy['rank']} {policy['bias']}; full exit at TP3; gross P&L only"
         events.append(PaperEvent(row["id"], "open", row["ticker"], row["source"], quote, 100, 0, note))
+        counts[key] += 1
+        total += 1
         if dry_run:
             continue
         db.execute(
@@ -366,9 +387,8 @@ def update_positions(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         next_idx = int(pos["next_target_index"])
         stop_loss = pos["stop_loss"]
         if stop_loss is not None and price <= float(stop_loss):
-            pnl = ((price - entry) / entry) * 100
-            weighted = pnl * (remaining / 100)
-            note = "paper stop hit"
+            weighted = net_pnl_pct(entry, price, remaining)
+            note = "paper stop hit; includes estimated 0.4% round-trip fees/slippage"
             events.append(PaperEvent(pos["signal_id"], "stop", pos["ticker"], pos["source"], price, remaining, weighted, note))
             if not dry_run:
                 db.execute("UPDATE paper_positions SET status='closed', remaining_pct=0, realized_pnl_pct=?, updated_at=?, closed_at=?, note=? WHERE id=?", (realized + weighted, utc_now(), utc_now(), note, pos["id"]))
@@ -379,8 +399,8 @@ def update_positions(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         # Never use TP4, even if a source publishes additional targets.
         if len(targets) >= 3 and price >= float(targets[2]):
             exit_price = float(targets[2])
-            weighted = ((exit_price - entry) / entry) * 100 * (remaining / 100)
-            note = "paper TP3 full exit; no TP4"
+            weighted = net_pnl_pct(entry, exit_price, remaining)
+            note = "paper TP3 full exit; no TP4; includes estimated 0.4% round-trip fees/slippage"
             events.append(PaperEvent(pos["signal_id"], "tp3", pos["ticker"], pos["source"], exit_price, remaining, weighted, note))
             realized += weighted
             if not dry_run:
