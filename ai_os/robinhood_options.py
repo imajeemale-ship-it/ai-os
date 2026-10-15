@@ -764,6 +764,23 @@ def run_alpaca_cycle(
     session = market_session()
     symbols = _normalize_symbols(symbol)
     active_ledger = Path(ledger_path or DEFAULT_LEDGER)
+    not_before = os.getenv("AI_OS_OPTIONS_NOT_BEFORE", "").strip()
+    if not_before and datetime.now(EASTERN).date() < datetime.fromisoformat(not_before).date():
+        record = {
+            "record_type": "paper_options_cycle",
+            "created_at": utc_now(),
+            "mode": "paper_only",
+            "live_trading_allowed": False,
+            "status": "rejected",
+            "entry_rejections": ["paper_entry_not_before_date"],
+            "symbols_checked": symbols,
+            "quote": None,
+            "order": None,
+            "exit_scores": [],
+            "morning_summary": f"Paper entry is locked until {not_before}.",
+        }
+        append_ledger(record, active_ledger)
+        return record
     if latest_open_position(active_ledger):
         record = {
             "record_type": "paper_options_cycle",
