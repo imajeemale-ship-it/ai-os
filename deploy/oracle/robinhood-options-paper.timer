@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AI-OS Robinhood Options Paper Cycle at 09:35 Eastern
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:35:00 America/New_York
+Persistent=true
+RandomizedDelaySec=0
+AccuracySec=1s
+Unit=robinhood-options-paper.service
+
+[Install]
+WantedBy=timers.target

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from ai_os.robinhood_options import (
@@ -43,6 +43,18 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
         self.assertIn("spread_too_wide", reasons)
         self.assertIn("option_volume_too_low", reasons)
         self.assertIn("open_interest_too_low", reasons)
+
+    def test_rejects_estimated_fill_above_total_budget(self):
+        quote = fixture_quote()
+        near_cap = OptionQuote(**{**quote.__dict__, "bid": 2.40, "ask": 2.45})
+        reasons = validate_entry(near_cap, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertIn("estimated_fill_above_premium_cap", reasons)
+
+    def test_rejects_stale_real_market_quote(self):
+        quote = fixture_quote()
+        stale = OptionQuote(**{**quote.__dict__, "quote_time": "2020-01-01T00:00:00Z", "source": "alpaca_options_chain:test"})
+        reasons = validate_entry(stale, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertIn("quote_stale", reasons)
 
     def test_exercise_gate_requires_cash_and_blocks_auto_exercise(self):
         gate = exercise_affordability(fixture_quote(), PaperAccount(buying_power=1000, settled_cash=5000))
@@ -114,7 +126,7 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             "snapshots": {
                 "SPY261030C00590000": {
                     "details": {"type": "call", "strike_price": 590, "expiration_date": "2026-10-30", "dte": 16},
-                    "latestQuote": {"bp": 1.42, "ap": 1.5, "t": "2026-10-14T14:35:00Z"},
+                    "latestQuote": {"bp": 1.42, "ap": 1.5, "t": datetime.now(timezone.utc).isoformat()},
                     "latestTrade": {"p": 1.46},
                     "greeks": {"delta": 0.36, "gamma": 0.041, "theta": -0.092, "vega": 0.184},
                     "impliedVolatility": 0.218,

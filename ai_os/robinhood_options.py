@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -83,6 +84,7 @@ class PaperPolicy:
     contracts: int = 1
     fee_per_contract: float = 0.0
     slippage_pct: float = 0.03
+    max_quote_age_seconds: int = 120
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,19 @@ def _load_env_file(path: Path = ALPACA_SECRET_FILE) -> dict[str, str]:
     return values
 
 
+def _quote_age_seconds(quote_time: str, now: datetime | None = None) -> float | None:
+    if not quote_time:
+        return None
+    try:
+        parsed = datetime.fromisoformat(quote_time.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return (current.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()
+
+
 def validate_entry(quote: OptionQuote, account: PaperAccount, policy: PaperPolicy) -> list[str]:
     reasons: list[str] = []
     if account.open_positions >= policy.max_concurrent_positions:
@@ -181,9 +196,17 @@ def validate_entry(quote: OptionQuote, account: PaperAccount, policy: PaperPolic
         reasons.append("option_volume_too_low")
     if quote.open_interest < policy.min_open_interest:
         reasons.append("open_interest_too_low")
-    estimated_cost = quote.premium + policy.fee_per_contract
+    estimated_cost = round(quote.premium * (1 + policy.slippage_pct) + policy.fee_per_contract, 2)
+    if estimated_cost > policy.max_premium:
+        reasons.append("estimated_fill_above_premium_cap")
     if account.buying_power < estimated_cost:
         reasons.append("paper_buying_power_insufficient")
+    if quote.source.startswith("alpaca_"):
+        quote_age = _quote_age_seconds(quote.quote_time)
+        if quote_age is None:
+            reasons.append("quote_time_missing_or_invalid")
+        elif quote_age < -5 or quote_age > policy.max_quote_age_seconds:
+            reasons.append("quote_stale")
     return reasons
 
 
@@ -242,6 +265,7 @@ def paper_trade_cycle(
     policy: PaperPolicy | None = None,
     exit_bid: float | None = None,
     ledger_path: str | Path | None = None,
+    persist: bool = True,
 ) -> dict[str, Any]:
     active_policy = policy or PaperPolicy()
     entry_rejections = validate_entry(quote, account, active_policy)
@@ -273,7 +297,8 @@ def paper_trade_cycle(
             "estimated_exit_value": realized_value,
             "estimated_net_pnl": pnl,
         })
-    append_ledger(record, ledger_path or DEFAULT_LEDGER)
+    if persist:
+        append_ledger(record, ledger_path or DEFAULT_LEDGER)
     return record
 
 
@@ -532,7 +557,7 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
         append_ledger(record, ledger_path or DEFAULT_LEDGER)
         return record
     account = PaperAccount(buying_power=250.0, settled_cash=5000.0)
-    record = paper_trade_cycle(selected_quote, account, ledger_path=ledger_path)
+    record = paper_trade_cycle(selected_quote, account, ledger_path=ledger_path, persist=False)
     record["market_session"] = asdict(session)
     record["symbols_checked"] = symbols
     record["rejected_symbols"] = rejected
@@ -540,7 +565,7 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
     record["candidate_rankings"] = [item["due_diligence"] for item in ranked[:5]]
     record["morning_summary"] = "One paper long call opened from the candidate watchlist because it ranked highest after due diligence and fit the $100-$250 total premium budget."
     record["sell_plan"] = _best_exit_plan(record)
-    append_ledger({"record_type": "paper_options_enriched", **record}, ledger_path or DEFAULT_LEDGER)
+    append_ledger(record, ledger_path or DEFAULT_LEDGER)
     return record
 
 
