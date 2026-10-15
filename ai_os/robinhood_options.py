@@ -310,6 +310,64 @@ def append_ledger(record: dict[str, Any], path: str | Path = DEFAULT_LEDGER) -> 
     return destination
 
 
+def latest_open_position(path: str | Path = DEFAULT_LEDGER) -> dict[str, Any] | None:
+    ledger = Path(path)
+    if not ledger.exists():
+        return None
+    position: dict[str, Any] | None = None
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("record_type") == "paper_options_cycle" and record.get("status") == "filled_and_scored":
+            position = record
+        elif record.get("record_type") == "paper_position_monitor" and record.get("status") == "closed":
+            position = None
+    return position
+
+
+def monitor_paper_position(ledger_path: str | Path | None = None) -> dict[str, Any]:
+    destination = Path(ledger_path or DEFAULT_LEDGER)
+    position = latest_open_position(destination)
+    if not position:
+        return {"record_type": "paper_position_monitor", "status": "no_open_position", "live_trading_allowed": False}
+    session = market_session()
+    if not session.options_open:
+        return {"record_type": "paper_position_monitor", "status": "market_closed", "live_trading_allowed": False}
+    source = str((position.get("quote") or {}).get("source") or "")
+    instrument_id = source.partition(":")[2] if source.startswith("robinhood_mcp:") else ""
+    if not instrument_id:
+        raise MarketDataUnavailable("missing_robinhood_instrument_id")
+    adapter = RobinhoodMCPDataAdapter()
+    payload = adapter._tool("get_option_quotes", {"instrument_ids": [instrument_id]})
+    results = (payload.get("data") or {}).get("results") or []
+    quote = (results[0].get("quote") or {}) if results else {}
+    current_bid = _as_float(quote.get("bid_price"))
+    if current_bid <= 0:
+        raise MarketDataUnavailable("missing_monitor_bid")
+    entry_price = _as_float((position.get("order") or {}).get("fill_price"))
+    score = score_exit(entry_price, current_bid, ExitRule(0.30, -0.20))
+    action = score["action"]
+    record = {
+        "record_type": "paper_position_monitor",
+        "created_at": utc_now(),
+        "mode": "paper_only",
+        "live_trading_allowed": False,
+        "status": "closed" if action.startswith("exit_") else "holding",
+        "action": action,
+        "instrument_id": instrument_id,
+        "symbol": (position.get("quote") or {}).get("symbol"),
+        "entry_price": entry_price,
+        "current_bid": current_bid,
+        "pnl_pct": score["pnl_pct"],
+        "estimated_net_pnl": round((current_bid - entry_price) * CONTRACT_MULTIPLIER, 2),
+        "quote_time": quote.get("updated_at"),
+        "exit_rule": {"profit_target_pct": 0.30, "loss_limit_pct": -0.20},
+    }
+    append_ledger(record, destination)
+    return record
+
+
 ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading"
 CODEX_CREDENTIALS_FILE = Path.home() / ".codex" / ".credentials.json"
 
@@ -342,6 +400,7 @@ class RobinhoodMCPDataAdapter:
             raise MarketDataUnavailable("robinhood_mcp_credentials_expired")
         self.access_token = entry["access_token"]
         self.opener = opener or urllib.request.urlopen
+        self.directional_signals: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _sse_payload(text: str) -> dict[str, Any]:
@@ -394,7 +453,22 @@ class RobinhoodMCPDataAdapter:
         choices = [(stamp, price) for stamp, price in choices if stamp and price]
         if not choices:
             raise MarketDataUnavailable("missing_underlying_price")
-        return _as_float(max(choices, key=lambda item: item[0])[1])
+        current_price = _as_float(max(choices, key=lambda item: item[0])[1])
+        previous_close = _as_float(quote.get("adjusted_previous_close") or quote.get("previous_close"))
+        if previous_close <= 0:
+            raise MarketDataUnavailable("missing_previous_close")
+        change_pct = (current_price - previous_close) / previous_close
+        self.directional_signals[symbol] = {
+            "current_price": current_price,
+            "previous_close": previous_close,
+            "change_pct": round(change_pct, 6),
+            "rule": "long_calls_require_0.15_to_4_percent_positive_move",
+        }
+        if change_pct < 0.0015:
+            raise MarketDataUnavailable("underlying_momentum_too_weak_for_long_call")
+        if change_pct > 0.04:
+            raise MarketDataUnavailable("underlying_move_too_extended_for_entry")
+        return current_price
 
     def long_call_candidates(self, underlying_symbol: str, policy: PaperPolicy | None = None) -> list[OptionQuote]:
         active_policy = policy or PaperPolicy()
@@ -689,6 +763,23 @@ def run_alpaca_cycle(
 ) -> dict[str, Any]:
     session = market_session()
     symbols = _normalize_symbols(symbol)
+    active_ledger = Path(ledger_path or DEFAULT_LEDGER)
+    if latest_open_position(active_ledger):
+        record = {
+            "record_type": "paper_options_cycle",
+            "created_at": utc_now(),
+            "mode": "paper_only",
+            "live_trading_allowed": False,
+            "status": "rejected",
+            "entry_rejections": ["max_concurrent_positions_reached"],
+            "symbols_checked": symbols,
+            "quote": None,
+            "order": None,
+            "exit_scores": [],
+            "morning_summary": "No new paper option was opened because one paper position is already active.",
+        }
+        append_ledger(record, active_ledger)
+        return record
     if not session.options_open:
         record = {
             "record_type": "paper_options_cycle",
@@ -763,6 +854,7 @@ def run_alpaca_cycle(
     record["symbols_checked"] = symbols
     record["rejected_symbols"] = rejected
     record["due_diligence"] = ranked[0]["due_diligence"]
+    record["directional_signal"] = getattr(adapter, "directional_signals", {}).get(selected_quote.symbol)
     record["candidate_rankings"] = [item["due_diligence"] for item in ranked[:5]]
     record["morning_summary"] = "One paper long call opened from the candidate watchlist because it ranked highest after due diligence and fit the $100-$250 total premium budget."
     record["sell_plan"] = _best_exit_plan(record)

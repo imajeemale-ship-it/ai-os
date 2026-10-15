@@ -17,7 +17,7 @@ from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.risk_limits import load_risk_limits, render_risk_limits_draft, render_risk_limits_questions, risk_limits_draft, risk_limits_next_questions, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
-from ai_os.robinhood_options import render_cycle_report, run_alpaca_cycle, run_fixture_cycle, save_cycle_report
+from ai_os.robinhood_options import monitor_paper_position, render_cycle_report, run_alpaca_cycle, run_fixture_cycle, save_cycle_report
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
@@ -100,6 +100,8 @@ def parser() -> argparse.ArgumentParser:
     rh_options.add_argument("--provider", choices=["fixture", "alpaca", "robinhood"], default="fixture")
     rh_options.add_argument("--symbol", default="SPY")
     rh_options.add_argument("--save-report", action="store_true", help="Save latest morning report under ~/.ai-os/robinhood-options/")
+    rh_monitor = commands.add_parser("robinhood-options-monitor", help="Monitor the active paper option and apply paper exit rules")
+    rh_monitor.add_argument("--ledger", help="Paper options JSONL ledger path")
     broker_init = commands.add_parser("broker-inventory-init", help="Create a local starter broker tool inventory")
     broker_init.add_argument("--path", help="Destination JSON path; defaults to ~/.ai-os/broker-tools.json")
     broker_init.add_argument("--overwrite", action="store_true")
@@ -250,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
                 _print({"saved_to": str(save_cycle_report(record)), "status": record.get("status")})
             else:
                 print(render_cycle_report(record))
+        elif args.command == "robinhood-options-monitor":
+            _print(monitor_paper_position(args.ledger))
         elif args.command == "broker-inventory-init":
             _print(write_broker_tool_inventory(args.path, args.overwrite))
         elif args.command == "broker-classify":

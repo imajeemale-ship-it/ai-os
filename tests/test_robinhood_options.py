@@ -15,6 +15,7 @@ from ai_os.robinhood_options import (
     RobinhoodMCPDataAdapter,
     exercise_affordability,
     fixture_quote,
+    latest_open_position,
     market_session,
     paper_trade_cycle,
     run_alpaca_cycle,
@@ -74,6 +75,15 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
             saved = json.loads(rows[0])
             self.assertEqual(saved["quote"]["source"], "clearly_labeled_test_fixture")
             self.assertEqual(saved["selected_exit_status"], "exit_profit_target")
+
+    def test_position_state_opens_and_closes_from_ledger(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "paper_trades.jsonl"
+            opened = run_fixture_cycle(ledger)
+            self.assertEqual(latest_open_position(ledger)["order"], opened["order"])
+            with ledger.open("a") as handle:
+                handle.write(json.dumps({"record_type": "paper_position_monitor", "status": "closed"}) + "\n")
+            self.assertIsNone(latest_open_position(ledger))
 
     def test_cycle_records_rejected_opportunity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -148,6 +158,24 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
             }))
             with self.assertRaisesRegex(MarketDataUnavailable, "robinhood_mcp_credentials_expired"):
                 RobinhoodMCPDataAdapter(credentials_path=credentials)
+
+    def test_robinhood_long_call_requires_positive_momentum(self):
+        adapter = object.__new__(RobinhoodMCPDataAdapter)
+        adapter.directional_signals = {}
+        adapter._tool = lambda name, args: {"data": {"results": [{"quote": {
+            "last_trade_price": "101.00",
+            "venue_last_trade_time": "2026-10-15T14:00:00Z",
+            "previous_close": "100.00",
+        }}]}}
+        self.assertEqual(adapter._underlying_price("TEST"), 101.0)
+        self.assertAlmostEqual(adapter.directional_signals["TEST"]["change_pct"], 0.01)
+        adapter._tool = lambda name, args: {"data": {"results": [{"quote": {
+            "last_trade_price": "99.00",
+            "venue_last_trade_time": "2026-10-15T14:00:00Z",
+            "previous_close": "100.00",
+        }}]}}
+        with self.assertRaisesRegex(MarketDataUnavailable, "momentum_too_weak"):
+            adapter._underlying_price("TEST")
 
     def test_alpaca_adapter_selects_policy_passing_call(self):
         payload = {
