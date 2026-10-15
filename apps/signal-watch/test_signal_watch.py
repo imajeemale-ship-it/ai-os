@@ -252,6 +252,8 @@ class SignalWatchTests(unittest.TestCase):
         with store.connect() as db:
             paper.init_db(db)
         signal = self.make_signal(source="Wallstreet Queen Official®", sent_at=watch.utc_now())
+        signal.parsed["targets"] = [66000, 67000, 68000]
+        paper.current_price = lambda ticker: 65500.0
         self.assertTrue(store.add(signal))
         with store.connect() as db:
             events = paper.open_candidates(db, dry_run=False)

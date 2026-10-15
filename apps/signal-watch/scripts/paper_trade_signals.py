@@ -209,9 +209,11 @@ def normalized_side(row: sqlite3.Row) -> str:
     return "long"
 
 
+ALLOWED_SOURCES = {"whales crypto guide", "wallstreet queen official", "hedge x fund 025"}
+
+
 def is_allowed_source(source: str) -> bool:
-    policy = watch.source_policy(source)
-    return policy["rank"] != "Unranked" and policy["bias"] != "watch-only"
+    return source.casefold().strip().replace("®", "") in ALLOWED_SOURCES
 
 
 def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
@@ -252,6 +254,13 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
             market_context = {}
         if not market_context.get("available"):
             continue
+        # Never book an entry at a historical signal price. Validate a current
+        # market quote before TP1, and use that quote as the simulated fill.
+        if len(targets) < 3 or not (entry and entry > 0):
+            continue
+        quote = current_price(row["ticker"])
+        if quote is None or not (entry <= quote < targets[0]):
+            continue
         conviction = row["conviction_score"] if "conviction_score" in row.keys() else None
         if conviction is None:
             conviction_result = watch.calculate_conviction(
@@ -273,8 +282,8 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
         if decision["decision"] == "REJECT":
             continue
         policy = watch.source_policy(row["source"])
-        note = f"paper open; decision {decision['decision']} {decision['overall_score']:.1f}/100; conviction {float(conviction):.1f}/100; {policy['rank']} {policy['bias']}; partial exits at targets"
-        events.append(PaperEvent(row["id"], "open", row["ticker"], row["source"], entry, 100, 0, note))
+        note = f"paper open at observed quote; decision {decision['decision']} {decision['overall_score']:.1f}/100; conviction {float(conviction):.1f}/100; {policy['rank']} {policy['bias']}; full exit at TP3; gross P&L only"
+        events.append(PaperEvent(row["id"], "open", row["ticker"], row["source"], quote, 100, 0, note))
         if dry_run:
             continue
         db.execute(
@@ -284,7 +293,7 @@ def open_candidates(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
              predicted_conviction,predicted_decision,predicted_overall_score,predicted_consensus_score,predicted_market_context_score)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (row["id"], row["source"], row["ticker"], side, entry, 100.0, row["stop_loss"], json.dumps(targets), utc_now(), utc_now(), note,
+            (row["id"], row["source"], row["ticker"], side, quote, 100.0, row["stop_loss"], json.dumps(targets), utc_now(), utc_now(), note,
              json.dumps(market_context, ensure_ascii=False), float(conviction), decision["decision"], decision["overall_score"],
              consensus.get("consensus_score"), market_context.get("market_context_score")),
         )
