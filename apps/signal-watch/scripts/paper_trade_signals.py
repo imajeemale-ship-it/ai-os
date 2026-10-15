@@ -366,20 +366,18 @@ def update_positions(db: sqlite3.Connection, dry_run: bool) -> list[PaperEvent]:
                 db.execute("INSERT INTO paper_events(position_id,signal_id,event_at,action,price,size_pct,pnl_pct,note) VALUES(?,?,?,?,?,?,?,?)", (pos["id"], pos["signal_id"], utc_now(), "stop", price, remaining, weighted, note))
                 record_learning_observation(db, pos["id"])
             continue
-        while next_idx < len(targets) and price >= float(targets[next_idx]) and remaining > 0:
-            tranche = 25.0 if next_idx < 3 else remaining
-            tranche = min(tranche, remaining)
-            pnl = ((float(targets[next_idx]) - entry) / entry) * 100
-            weighted = pnl * (tranche / 100)
-            action = f"tp{next_idx + 1}"
-            note = f"paper {action} hit"
-            events.append(PaperEvent(pos["signal_id"], action, pos["ticker"], pos["source"], float(targets[next_idx]), tranche, weighted, note))
-            remaining -= tranche
+        # TP1 and TP2 are milestones only. Close the entire position at TP3.
+        # Never use TP4, even if a source publishes additional targets.
+        if len(targets) >= 3 and price >= float(targets[2]):
+            exit_price = float(targets[2])
+            weighted = ((exit_price - entry) / entry) * 100 * (remaining / 100)
+            note = "paper TP3 full exit; no TP4"
+            events.append(PaperEvent(pos["signal_id"], "tp3", pos["ticker"], pos["source"], exit_price, remaining, weighted, note))
             realized += weighted
-            next_idx += 1
-            if dry_run:
-                continue
-            db.execute("INSERT INTO paper_events(position_id,signal_id,event_at,action,price,size_pct,pnl_pct,note) VALUES(?,?,?,?,?,?,?,?)", (pos["id"], pos["signal_id"], utc_now(), action, float(targets[next_idx - 1]), tranche, weighted, note))
+            if not dry_run:
+                db.execute("INSERT INTO paper_events(position_id,signal_id,event_at,action,price,size_pct,pnl_pct,note) VALUES(?,?,?,?,?,?,?,?)", (pos["id"], pos["signal_id"], utc_now(), "tp3", exit_price, remaining, weighted, note))
+            remaining = 0.0
+            next_idx = 3
         if not dry_run:
             status = "closed" if remaining <= 0 else "open"
             db.execute("UPDATE paper_positions SET remaining_pct=?, next_target_index=?, status=?, realized_pnl_pct=?, updated_at=?, closed_at=CASE WHEN ?='closed' THEN ? ELSE closed_at END WHERE id=?", (remaining, next_idx, status, realized, utc_now(), status, utc_now(), pos["id"]))

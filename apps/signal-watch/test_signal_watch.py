@@ -284,7 +284,10 @@ class SignalWatchTests(unittest.TestCase):
             )
             paper.current_price = lambda ticker: 140.0
             events = paper.update_positions(db, dry_run=False)
-            self.assertEqual(len(events), 4)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].action, "tp3")
+            self.assertEqual(events[0].size_pct, 100.0)
+            self.assertEqual(events[0].price, 130.0)
             observation = db.execute("SELECT * FROM learning_observations").fetchone()
             self.assertIsNotNone(observation)
             self.assertEqual(observation["outcome"], "WIN")
