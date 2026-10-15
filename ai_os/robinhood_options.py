@@ -310,6 +310,49 @@ def append_ledger(record: dict[str, Any], path: str | Path = DEFAULT_LEDGER) -> 
     return destination
 
 
+def send_telegram_alert(message: str) -> bool:
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return False
+    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode()
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=payload,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return 200 <= getattr(response, "status", 0) < 300
+    except Exception:
+        return False
+
+
+def notify_paper_event(record: dict[str, Any]) -> bool:
+    status = record.get("status")
+    if record.get("record_type") == "paper_position_monitor" and status not in {"closed", "error"}:
+        return False
+    if status == "filled_and_scored":
+        quote = record.get("quote") or {}
+        order = record.get("order") or {}
+        message = (
+            f"PAPER OPTION OPENED: {quote.get('symbol')} {quote.get('expiration')} "
+            f"{quote.get('strike')}C at ${order.get('fill_price')} per share. "
+            f"Cost ${order.get('total_cost')}. Exit plan: +30% / -20%."
+        )
+    elif status == "closed":
+        message = (
+            f"PAPER OPTION EXIT: {record.get('symbol')} action={record.get('action')} "
+            f"P&L ${record.get('estimated_net_pnl')} ({record.get('pnl_pct', 0):.1%})."
+        )
+    elif status == "error":
+        message = f"ROBINHOOD PAPER AGENT ERROR: {record.get('error')}"
+    else:
+        reasons = ", ".join(record.get("entry_rejections") or ["unknown_reason"])
+        message = f"NO PAPER TRADE: {reasons}. The agent stayed in cash."
+    return send_telegram_alert(message)
+
+
 def latest_open_position(path: str | Path = DEFAULT_LEDGER) -> dict[str, Any] | None:
     ledger = Path(path)
     if not ledger.exists():

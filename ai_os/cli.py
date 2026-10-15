@@ -17,7 +17,7 @@ from ai_os.proposal import decide_model_proposal, model_proposal, pending_model_
 from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.risk_limits import load_risk_limits, render_risk_limits_draft, render_risk_limits_questions, risk_limits_draft, risk_limits_next_questions, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
-from ai_os.robinhood_options import monitor_paper_position, render_cycle_report, run_alpaca_cycle, run_fixture_cycle, save_cycle_report
+from ai_os.robinhood_options import monitor_paper_position, notify_paper_event, render_cycle_report, run_alpaca_cycle, run_fixture_cycle, save_cycle_report
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
@@ -244,16 +244,27 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(render_daily_trading_operator(daily_trading_operator()))
         elif args.command == "robinhood-options-paper":
-            if args.provider in {"alpaca", "robinhood"}:
-                record = run_alpaca_cycle(args.symbol, args.ledger, adapter_kind=args.provider)
-            else:
-                record = run_fixture_cycle(args.ledger)
+            try:
+                if args.provider in {"alpaca", "robinhood"}:
+                    record = run_alpaca_cycle(args.symbol, args.ledger, adapter_kind=args.provider)
+                else:
+                    record = run_fixture_cycle(args.ledger)
+            except Exception as exc:
+                notify_paper_event({"record_type": "paper_options_cycle", "status": "error", "error": str(exc)})
+                raise
+            notify_paper_event(record)
             if args.save_report:
                 _print({"saved_to": str(save_cycle_report(record)), "status": record.get("status")})
             else:
                 print(render_cycle_report(record))
         elif args.command == "robinhood-options-monitor":
-            _print(monitor_paper_position(args.ledger))
+            try:
+                record = monitor_paper_position(args.ledger)
+            except Exception as exc:
+                notify_paper_event({"record_type": "paper_position_monitor", "status": "error", "error": str(exc)})
+                raise
+            notify_paper_event(record)
+            _print(record)
         elif args.command == "broker-inventory-init":
             _print(write_broker_tool_inventory(args.path, args.overwrite))
         elif args.command == "broker-classify":
