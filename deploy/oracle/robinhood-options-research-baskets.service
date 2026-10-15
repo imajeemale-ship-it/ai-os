@@ -1,0 +1,18 @@
+[Unit]
+Description=AI-OS Robinhood Options Research Baskets
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ai-os
+Environment=PYTHONUNBUFFERED=1
+Environment=AI_OS_DB=/home/ubuntu/.ai-os/ai_os.db
+EnvironmentFile=-/home/ubuntu/.johnny5_telegram_env
+ExecStart=/home/ubuntu/ai-os/.venv/bin/python -m ai_os robinhood-options-research-baskets
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/.ai-os

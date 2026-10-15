@@ -18,6 +18,7 @@ from ai_os.providers.openai_compatible import OpenAICompatibleProvider
 from ai_os.report import render_daily_brief, save_daily_brief
 from ai_os.risk_limits import load_risk_limits, render_risk_limits_draft, render_risk_limits_questions, risk_limits_draft, risk_limits_next_questions, save_risk_limits_draft, validate_risk_limits, write_risk_limits_template
 from ai_os.robinhood_options import monitor_paper_position, notify_paper_event, render_cycle_report, run_alpaca_cycle, run_fixture_cycle, save_cycle_report
+from ai_os.robinhood_research_baskets import run_research_baskets
 from ai_os.scheduler import (
     daily_brief_status, daily_cycle_status, daily_trading_operator_status,
     install_daily_brief, install_daily_cycle, install_daily_trading_operator,
@@ -102,6 +103,8 @@ def parser() -> argparse.ArgumentParser:
     rh_options.add_argument("--save-report", action="store_true", help="Save latest morning report under ~/.ai-os/robinhood-options/")
     rh_monitor = commands.add_parser("robinhood-options-monitor", help="Monitor the active paper option and apply paper exit rules")
     rh_monitor.add_argument("--ledger", help="Paper options JSONL ledger path")
+    rh_baskets = commands.add_parser("robinhood-options-research-baskets", help="Run tactical and core-trend paper baskets")
+    rh_baskets.add_argument("--symbols", default="SPY,QQQ,IWM,DIA,XLK,XLF,XLE,SMH,TLT,GLD,SLV,AAPL,MSFT,NVDA,AMD,AMZN,META,GOOGL,TSLA,PLTR")
     broker_init = commands.add_parser("broker-inventory-init", help="Create a local starter broker tool inventory")
     broker_init.add_argument("--path", help="Destination JSON path; defaults to ~/.ai-os/broker-tools.json")
     broker_init.add_argument("--overwrite", action="store_true")
@@ -265,6 +268,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             notify_paper_event(record)
             _print(record)
+        elif args.command == "robinhood-options-research-baskets":
+            records = run_research_baskets(args.symbols)
+            for record in records.values():
+                notify_paper_event(record)
+            _print(records)
         elif args.command == "broker-inventory-init":
             _print(write_broker_tool_inventory(args.path, args.overwrite))
         elif args.command == "broker-classify":

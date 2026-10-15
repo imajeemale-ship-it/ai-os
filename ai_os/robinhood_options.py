@@ -332,24 +332,27 @@ def notify_paper_event(record: dict[str, Any]) -> bool:
     status = record.get("status")
     if record.get("record_type") == "paper_position_monitor" and status not in {"closed", "error"}:
         return False
+    basket = f"[{record.get('basket')}] " if record.get("basket") else ""
     if status == "filled_and_scored":
         quote = record.get("quote") or {}
         order = record.get("order") or {}
+        exit_rule = record.get("exit_rule") or {"profit_target_pct": 0.30, "loss_limit_pct": -0.20}
         message = (
-            f"PAPER OPTION OPENED: {quote.get('symbol')} {quote.get('expiration')} "
+            f"{basket}PAPER OPTION OPENED: {quote.get('symbol')} {quote.get('expiration')} "
             f"{quote.get('strike')}C at ${order.get('fill_price')} per share. "
-            f"Cost ${order.get('total_cost')}. Exit plan: +30% / -20%."
+            f"Cost ${order.get('total_cost')}. Exit plan: "
+            f"{exit_rule['profit_target_pct']:+.0%} / {exit_rule['loss_limit_pct']:.0%}."
         )
     elif status == "closed":
         message = (
-            f"PAPER OPTION EXIT: {record.get('symbol')} action={record.get('action')} "
+            f"{basket}PAPER OPTION EXIT: {record.get('symbol')} action={record.get('action')} "
             f"P&L ${record.get('estimated_net_pnl')} ({record.get('pnl_pct', 0):.1%})."
         )
     elif status == "error":
         message = f"ROBINHOOD PAPER AGENT ERROR: {record.get('error')}"
     else:
         reasons = ", ".join(record.get("entry_rejections") or ["unknown_reason"])
-        message = f"NO PAPER TRADE: {reasons}. The agent stayed in cash."
+        message = f"{basket}NO PAPER TRADE: {reasons}. The agent stayed in cash."
     return send_telegram_alert(message)
 
 
@@ -389,7 +392,12 @@ def monitor_paper_position(ledger_path: str | Path | None = None) -> dict[str, A
     if current_bid <= 0:
         raise MarketDataUnavailable("missing_monitor_bid")
     entry_price = _as_float((position.get("order") or {}).get("fill_price"))
-    score = score_exit(entry_price, current_bid, ExitRule(0.30, -0.20))
+    configured_rule = position.get("exit_rule") or {"profit_target_pct": 0.30, "loss_limit_pct": -0.20}
+    exit_rule = ExitRule(
+        _as_float(configured_rule.get("profit_target_pct"), 0.30),
+        _as_float(configured_rule.get("loss_limit_pct"), -0.20),
+    )
+    score = score_exit(entry_price, current_bid, exit_rule)
     action = score["action"]
     record = {
         "record_type": "paper_position_monitor",
@@ -397,6 +405,7 @@ def monitor_paper_position(ledger_path: str | Path | None = None) -> dict[str, A
         "mode": "paper_only",
         "live_trading_allowed": False,
         "status": "closed" if action.startswith("exit_") else "holding",
+        "basket": position.get("basket"),
         "action": action,
         "instrument_id": instrument_id,
         "symbol": (position.get("quote") or {}).get("symbol"),
@@ -405,7 +414,7 @@ def monitor_paper_position(ledger_path: str | Path | None = None) -> dict[str, A
         "pnl_pct": score["pnl_pct"],
         "estimated_net_pnl": round((current_bid - entry_price) * CONTRACT_MULTIPLIER, 2),
         "quote_time": quote.get("updated_at"),
-        "exit_rule": {"profit_target_pct": 0.30, "loss_limit_pct": -0.20},
+        "exit_rule": asdict(exit_rule),
     }
     append_ledger(record, destination)
     return record

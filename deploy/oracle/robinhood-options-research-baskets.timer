@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AI-OS options research baskets at 10:05 Eastern
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:05:00 America/New_York
+Persistent=true
+RandomizedDelaySec=0
+AccuracySec=1s
+Unit=robinhood-options-research-baskets.service
+
+[Install]
+WantedBy=timers.target
