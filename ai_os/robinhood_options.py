@@ -420,6 +420,10 @@ class RobinhoodMCPDataAdapter:
 
     allowed_tools = {
         "get_equity_quotes",
+        "get_equity_historicals",
+        "get_option_historicals",
+        "get_earnings_results",
+        "get_equity_news",
         "get_option_chains",
         "get_option_instruments",
         "get_option_quotes",
@@ -444,6 +448,8 @@ class RobinhoodMCPDataAdapter:
         self.access_token = entry["access_token"]
         self.opener = opener or urllib.request.urlopen
         self.directional_signals: dict[str, dict[str, Any]] = {}
+        self.strategy_contexts: dict[str, dict[str, Any]] = {}
+        self.strategy_matches: dict[str, list[str]] = {}
 
     @staticmethod
     def _sse_payload(text: str) -> dict[str, Any]:
@@ -513,6 +519,45 @@ class RobinhoodMCPDataAdapter:
             raise MarketDataUnavailable("underlying_move_too_extended_for_entry")
         return current_price
 
+    def _strategy_context(self, symbol: str, current_price: float) -> dict[str, Any]:
+        if symbol in self.strategy_contexts:
+            return self.strategy_contexts[symbol]
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=100)
+        payload = self._tool("get_equity_historicals", {
+            "symbols": [symbol],
+            "start_time": start.isoformat().replace("+00:00", "Z"),
+            "end_time": end.isoformat().replace("+00:00", "Z"),
+            "interval": "day",
+            "bounds": "regular",
+            "adjustment_type": "split",
+        })
+        results = (payload.get("data") or {}).get("results") or []
+        bars = (results[0].get("bars") or []) if results else []
+        bars = [bar for bar in bars if not bar.get("interpolated")]
+        today = datetime.now(EASTERN).date()
+        completed = [bar for bar in bars if datetime.fromisoformat(str(bar["begins_at"]).replace("Z", "+00:00")).astimezone(EASTERN).date() < today]
+        closes = [_as_float(bar.get("close_price")) for bar in completed]
+        highs = [_as_float(bar.get("high_price")) for bar in completed]
+        if len(closes) < 50:
+            raise MarketDataUnavailable("insufficient_equity_history")
+        sma20 = sum(closes[-20:]) / 20
+        sma50 = sum(closes[-50:]) / 50
+        prior_high20 = max(highs[-20:])
+        breakout = current_price >= prior_high20 * 1.001
+        established_uptrend = sma20 > sma50 and closes[-1] > sma50
+        pullback = established_uptrend and sma20 * 0.98 <= current_price <= sma20 * 1.02
+        context = {
+            "sma20": round(sma20, 4),
+            "sma50": round(sma50, 4),
+            "prior_high20": round(prior_high20, 4),
+            "breakout_continuation": breakout,
+            "established_uptrend": established_uptrend,
+            "pullback_continuation": pullback,
+        }
+        self.strategy_contexts[symbol] = context
+        return context
+
     def long_call_candidates(self, underlying_symbol: str, policy: PaperPolicy | None = None) -> list[OptionQuote]:
         active_policy = policy or PaperPolicy()
         symbol = underlying_symbol.upper()
@@ -533,6 +578,7 @@ class RobinhoodMCPDataAdapter:
         if not expirations:
             raise MarketDataUnavailable("no_expiration_in_primary_window")
         underlying_price = self._underlying_price(symbol)
+        strategy_context = self._strategy_context(symbol, underlying_price)
         instruments: list[dict[str, Any]] = []
         cursor: str | None = None
         for _ in range(30):
@@ -594,7 +640,20 @@ class RobinhoodMCPDataAdapter:
                 underlying_volume=0,
                 source=f"robinhood_mcp:{item['id']}",
             )
-            if not validate_entry(quote, PaperAccount(buying_power=10_000, settled_cash=10_000), active_policy):
+            spread_pct = quote.spread / quote.mid if quote.mid else 1.0
+            volume_oi_ratio = quote.volume / quote.open_interest if quote.open_interest else 0.0
+            controlled_iv = quote.implied_volatility is not None and 0.15 <= quote.implied_volatility <= 0.60
+            balanced_delta = quote.delta is not None and 0.20 <= quote.delta <= 0.50
+            tight_execution = spread_pct <= 0.10
+            matches: list[str] = []
+            if quote.volume >= 500 and volume_oi_ratio >= 0.50 and balanced_delta and tight_execution and controlled_iv:
+                matches.append("dean_ahrens_unusual_flow_proxy")
+            if strategy_context["breakout_continuation"] and balanced_delta and tight_execution and controlled_iv:
+                matches.append("breakout_continuation")
+            if strategy_context["pullback_continuation"] and balanced_delta and tight_execution and controlled_iv:
+                matches.append("pullback_continuation_uptrend")
+            if matches and not validate_entry(quote, PaperAccount(buying_power=10_000, settled_cash=10_000), active_policy):
+                self.strategy_matches[item["id"]] = matches
                 candidates.append(quote)
         if not candidates:
             raise MarketDataUnavailable("no_contract_passed_policy_filters")
@@ -915,6 +974,9 @@ def run_alpaca_cycle(
     record["rejected_symbols"] = rejected
     record["due_diligence"] = ranked[0]["due_diligence"]
     record["directional_signal"] = getattr(adapter, "directional_signals", {}).get(selected_quote.symbol)
+    record["strategy_context"] = getattr(adapter, "strategy_contexts", {}).get(selected_quote.symbol)
+    instrument_id = selected_quote.source.partition(":")[2]
+    record["strategy_matches"] = getattr(adapter, "strategy_matches", {}).get(instrument_id, [])
     record["candidate_rankings"] = [item["due_diligence"] for item in ranked[:5]]
     record["morning_summary"] = "One paper long call opened from the candidate watchlist because it ranked highest after due diligence and fit the $100-$250 total premium budget."
     record["sell_plan"] = _best_exit_plan(record)
@@ -955,6 +1017,14 @@ def render_cycle_report(record: dict[str, Any]) -> str:
             f"DTE: {quote['dte']}",
         ])
     lines.append(f"Entry rejections: {', '.join(record['entry_rejections']) or 'none'}")
+    if record.get("strategy_matches"):
+        lines.extend(["", "MATCHED STRATEGIES", *[f"- {item}" for item in record["strategy_matches"]]])
+    if record.get("strategy_context"):
+        context = record["strategy_context"]
+        lines.extend([
+            f"20/50-day averages: {context['sma20']:.2f} / {context['sma50']:.2f}",
+            f"Prior 20-day high: {context['prior_high20']:.2f}",
+        ])
     if record.get("due_diligence"):
         diligence = record["due_diligence"]
         lines.extend([

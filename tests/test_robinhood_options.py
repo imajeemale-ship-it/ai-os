@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from ai_os.robinhood_options import (
@@ -176,6 +176,27 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
         }}]}}
         with self.assertRaisesRegex(MarketDataUnavailable, "momentum_too_weak"):
             adapter._underlying_price("TEST")
+
+    def test_robinhood_strategy_context_detects_breakout(self):
+        adapter = object.__new__(RobinhoodMCPDataAdapter)
+        adapter.strategy_contexts = {}
+        start = datetime.now(timezone.utc) - timedelta(days=70)
+        bars = []
+        for index in range(60):
+            price = 100.0 + index
+            bars.append({
+                "begins_at": (start + timedelta(days=index)).isoformat(),
+                "open_price": str(price - 0.5),
+                "high_price": str(price + 1),
+                "low_price": str(price - 1),
+                "close_price": str(price),
+                "volume": 1000000,
+                "interpolated": False,
+            })
+        adapter._tool = lambda name, args: {"data": {"results": [{"bars": bars}]}}
+        context = adapter._strategy_context("TEST", 170.0)
+        self.assertTrue(context["breakout_continuation"])
+        self.assertTrue(context["established_uptrend"])
 
     def test_alpaca_adapter_selects_policy_passing_call(self):
         payload = {

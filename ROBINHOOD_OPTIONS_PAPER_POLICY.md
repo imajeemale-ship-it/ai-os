@@ -1,6 +1,6 @@
 # Robinhood Options Agent — Paper Policy v0 (2026-10-14)
 
-Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live trading remains disabled.
+Status: CLOUD PAPER ENGINE CONNECTED TO READ-ONLY ROBINHOOD MARKET DATA. Live order tools remain blocked.
 
 ## Scope
 - Long calls only; buy to open; one standard 100-share contract per trade.
@@ -10,6 +10,9 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 - Simulated exit experiment: compare loss thresholds of -20% and -30%, and profit thresholds of +30% and +50%, accounting for spreads/slippage. These are test hypotheses, not guaranteed fills or maximum loss.
 - Record intraday quote freshness, volume/open interest, spread, implied volatility, and time decay; reject stale or thinly traded contracts.
 - Block entry if market data stale, quotes missing, spread excessive, contract illiquid, or available paper buying power insufficient.
+- Paper strategy lanes are measured separately: (1) Dean Ahrens-inspired unusual-flow proxy using option volume/open-interest, tight execution, balanced delta, controlled IV, and positive stock momentum; (2) 20-day breakout continuation; and (3) pullback continuation near the 20-day average inside an established 20/50-day uptrend.
+- The unusual-flow lane is explicitly a proxy, not Dean Ahrens's undisclosed proprietary method and not a claim of institutional order-flow visibility.
+- New strategy entries require spread <=10%, IV between 15% and 60%, and delta between 0.20 and 0.50 before the existing policy gates are applied.
 
 ## Position disposition
 - This strategy trades option premium only and closes positions by selling the option contract.
@@ -19,7 +22,7 @@ Status: PAPER ENGINE MILESTONE 1 BUILT AND TESTED. Not broker-connected; live tr
 ## Verification acceptance
 - One genuine timestamped option chain/quote, simulated order with fill/slippage, position tracking, risk-gate decisions, exit, net P&L, and durable log.
 - Record strategy and reason for every rejection; no fabricated fills or performance claims.
-- Live mode remains disabled until repeated paper results, broker permissions, affordability checks and explicit approval.
+- Live mode remains disabled until repeated paper results, verified risk controls, broker permissions, and explicit approval.
 
 ## Verified milestone 1
 - Added `ai_os.robinhood_options` as a paper-only long-call engine.
