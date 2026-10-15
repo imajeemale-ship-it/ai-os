@@ -9,8 +9,7 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/ai-os
 Environment=PYTHONUNBUFFERED=1
 Environment=AI_OS_DB=/home/ubuntu/.ai-os/ai_os.db
-EnvironmentFile=-/home/ubuntu/.ai-os/secrets/alpaca.env
-ExecStart=/home/ubuntu/ai-os/.venv/bin/python -m ai_os robinhood-options-paper --provider alpaca --symbol SPY,QQQ,AAPL --save-report
+ExecStart=/home/ubuntu/ai-os/.venv/bin/python -m ai_os robinhood-options-paper --provider robinhood --symbol SPY,QQQ,AAPL --save-report
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

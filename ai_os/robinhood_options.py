@@ -201,7 +201,7 @@ def validate_entry(quote: OptionQuote, account: PaperAccount, policy: PaperPolic
         reasons.append("estimated_fill_above_premium_cap")
     if account.buying_power < estimated_cost:
         reasons.append("paper_buying_power_insufficient")
-    if quote.source.startswith("alpaca_"):
+    if quote.source.startswith(("alpaca_", "robinhood_")):
         quote_age = _quote_age_seconds(quote.quote_time)
         if quote_age is None:
             reasons.append("quote_time_missing_or_invalid")
@@ -308,6 +308,180 @@ def append_ledger(record: dict[str, Any], path: str | Path = DEFAULT_LEDGER) -> 
     with destination.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
     return destination
+
+
+ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading"
+CODEX_CREDENTIALS_FILE = Path.home() / ".codex" / ".credentials.json"
+
+
+class RobinhoodMCPDataAdapter:
+    """Deterministic read-only Robinhood MCP market-data adapter."""
+
+    allowed_tools = {
+        "get_equity_quotes",
+        "get_option_chains",
+        "get_option_instruments",
+        "get_option_quotes",
+    }
+
+    def __init__(self, credentials_path: str | Path = CODEX_CREDENTIALS_FILE, opener: Any | None = None):
+        path = Path(credentials_path)
+        if not path.exists():
+            raise MarketDataUnavailable("missing_robinhood_mcp_credentials")
+        credentials = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(
+            (item for item in credentials.values() if item.get("server_name") == "robinhood-trading"),
+            None,
+        )
+        if not entry or not entry.get("access_token"):
+            raise MarketDataUnavailable("missing_robinhood_mcp_credentials")
+        expires_at = _as_float(entry.get("expires_at"))
+        if expires_at > 10**12:
+            expires_at /= 1000
+        if expires_at and datetime.now(timezone.utc).timestamp() >= expires_at:
+            raise MarketDataUnavailable("robinhood_mcp_credentials_expired")
+        self.access_token = entry["access_token"]
+        self.opener = opener or urllib.request.urlopen
+
+    @staticmethod
+    def _sse_payload(text: str) -> dict[str, Any]:
+        for line in text.splitlines():
+            if line.startswith("data: "):
+                return json.loads(line[6:])
+        raise MarketDataUnavailable("invalid_robinhood_mcp_response")
+
+    def _tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name not in self.allowed_tools:
+            raise MarketDataUnavailable("robinhood_mcp_tool_not_allowed")
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }).encode()
+        request = urllib.request.Request(
+            ROBINHOOD_MCP_URL,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            method="POST",
+        )
+        with self.opener(request, timeout=30) as response:
+            outer = self._sse_payload(response.read().decode("utf-8"))
+        if outer.get("error"):
+            raise MarketDataUnavailable(f"robinhood_mcp_error:{outer['error'].get('message', 'unknown')}")
+        result = outer.get("result") or {}
+        if result.get("isError"):
+            raise MarketDataUnavailable("robinhood_mcp_tool_error")
+        text = next((item.get("text") for item in result.get("content", []) if item.get("type") == "text"), None)
+        if not text:
+            raise MarketDataUnavailable("empty_robinhood_mcp_response")
+        return json.loads(text)
+
+    def _underlying_price(self, symbol: str) -> float:
+        payload = self._tool("get_equity_quotes", {"symbols": [symbol]})
+        results = (payload.get("data") or {}).get("results") or []
+        if not results:
+            raise MarketDataUnavailable("missing_underlying_quote")
+        quote = results[0].get("quote") or {}
+        choices = [
+            (quote.get("venue_last_trade_time"), quote.get("last_trade_price")),
+            (quote.get("venue_last_non_reg_trade_time"), quote.get("last_non_reg_trade_price")),
+        ]
+        choices = [(stamp, price) for stamp, price in choices if stamp and price]
+        if not choices:
+            raise MarketDataUnavailable("missing_underlying_price")
+        return _as_float(max(choices, key=lambda item: item[0])[1])
+
+    def long_call_candidates(self, underlying_symbol: str, policy: PaperPolicy | None = None) -> list[OptionQuote]:
+        active_policy = policy or PaperPolicy()
+        symbol = underlying_symbol.upper()
+        chain_payload = self._tool("get_option_chains", {"underlying_symbol": symbol})
+        chains = (chain_payload.get("data") or {}).get("chains") or []
+        if not chains:
+            raise MarketDataUnavailable("empty_option_chain")
+        today = datetime.now(EASTERN).date()
+        expirations = []
+        for value in chains[0].get("expiration_dates") or []:
+            try:
+                expiry = datetime.fromisoformat(value).date()
+            except ValueError:
+                continue
+            dte = (expiry - today).days
+            if active_policy.min_dte <= dte <= active_policy.max_dte:
+                expirations.append(value)
+        if not expirations:
+            raise MarketDataUnavailable("no_expiration_in_primary_window")
+        underlying_price = self._underlying_price(symbol)
+        instruments: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(30):
+            args: dict[str, Any] = {
+                "chain_symbol": symbol,
+                "expiration_dates": ",".join(expirations),
+                "type": "call",
+                "tradability": "tradable",
+            }
+            if cursor:
+                args["cursor"] = cursor
+            payload = self._tool("get_option_instruments", args)
+            data = payload.get("data") or {}
+            instruments.extend(data.get("instruments") or [])
+            cursor = data.get("next")
+            if not cursor:
+                break
+        eligible = [
+            item for item in instruments
+            if underlying_price <= _as_float(item.get("strike_price")) <= underlying_price * 1.12
+        ]
+        quotes_by_id: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(eligible), 100):
+            ids = [item["id"] for item in eligible[start:start + 100]]
+            payload = self._tool("get_option_quotes", {"instrument_ids": ids})
+            for result in (payload.get("data") or {}).get("results") or []:
+                quote_data = result.get("quote") or {}
+                if quote_data.get("instrument_id"):
+                    quotes_by_id[quote_data["instrument_id"]] = quote_data
+        candidates: list[OptionQuote] = []
+        for item in eligible:
+            data = quotes_by_id.get(item["id"]) or {}
+            expiration = str(item.get("expiration_date") or "")
+            try:
+                dte = (datetime.fromisoformat(expiration).date() - today).days
+            except ValueError:
+                continue
+            bid = _as_float(data.get("bid_price"))
+            ask = _as_float(data.get("ask_price"))
+            if not bid or not ask:
+                continue
+            quote = OptionQuote(
+                symbol=symbol,
+                underlying_price=underlying_price,
+                strike=_as_float(item.get("strike_price")),
+                expiration=expiration,
+                dte=dte,
+                bid=bid,
+                ask=ask,
+                last=_as_float(data.get("mark_price"), (bid + ask) / 2),
+                volume=_as_int(data.get("volume")),
+                open_interest=_as_int(data.get("open_interest")),
+                implied_volatility=_as_float(data.get("implied_volatility")) if data.get("implied_volatility") else None,
+                delta=_as_float(data.get("delta")) if data.get("delta") else None,
+                gamma=_as_float(data.get("gamma")) if data.get("gamma") else None,
+                theta=_as_float(data.get("theta")) if data.get("theta") else None,
+                vega=_as_float(data.get("vega")) if data.get("vega") else None,
+                quote_time=str(data.get("updated_at") or ""),
+                underlying_volume=0,
+                source=f"robinhood_mcp:{item['id']}",
+            )
+            if not validate_entry(quote, PaperAccount(buying_power=10_000, settled_cash=10_000), active_policy):
+                candidates.append(quote)
+        if not candidates:
+            raise MarketDataUnavailable("no_contract_passed_policy_filters")
+        return candidates
 
 
 class AlpacaOptionsDataAdapter:
@@ -508,7 +682,11 @@ def _best_exit_plan(record: dict[str, Any]) -> str:
     )
 
 
-def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None) -> dict[str, Any]:
+def run_alpaca_cycle(
+    symbol: str = "SPY",
+    ledger_path: str | Path | None = None,
+    adapter_kind: str = "alpaca",
+) -> dict[str, Any]:
     session = market_session()
     symbols = _normalize_symbols(symbol)
     if not session.options_open:
@@ -529,7 +707,12 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
         append_ledger(record, ledger_path or DEFAULT_LEDGER)
         return record
     try:
-        adapter = AlpacaOptionsDataAdapter()
+        if adapter_kind == "robinhood":
+            adapter = RobinhoodMCPDataAdapter()
+        elif adapter_kind == "alpaca":
+            adapter = AlpacaOptionsDataAdapter()
+        else:
+            raise MarketDataUnavailable("unsupported_market_data_adapter")
     except MarketDataUnavailable as exc:
         record = {
             "record_type": "paper_options_cycle",
@@ -543,7 +726,7 @@ def run_alpaca_cycle(symbol: str = "SPY", ledger_path: str | Path | None = None)
             "quote": None,
             "order": None,
             "exit_scores": [],
-            "morning_summary": "No paper option was bought because real market-data credentials were unavailable.",
+            "morning_summary": "No paper option was bought because the real market-data adapter was unavailable.",
         }
         append_ledger(record, ledger_path or DEFAULT_LEDGER)
         return record

@@ -97,7 +97,7 @@ def parser() -> argparse.ArgumentParser:
     daily_trading.add_argument("--save", action="store_true")
     rh_options = commands.add_parser("robinhood-options-paper", help="Run one paper-only long-call options cycle")
     rh_options.add_argument("--ledger", help="Destination JSONL ledger path; defaults to ~/.ai-os/robinhood-options/paper_trades.jsonl")
-    rh_options.add_argument("--provider", choices=["fixture", "alpaca"], default="fixture")
+    rh_options.add_argument("--provider", choices=["fixture", "alpaca", "robinhood"], default="fixture")
     rh_options.add_argument("--symbol", default="SPY")
     rh_options.add_argument("--save-report", action="store_true", help="Save latest morning report under ~/.ai-os/robinhood-options/")
     broker_init = commands.add_parser("broker-inventory-init", help="Create a local starter broker tool inventory")
@@ -242,8 +242,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(render_daily_trading_operator(daily_trading_operator()))
         elif args.command == "robinhood-options-paper":
-            if args.provider == "alpaca":
-                record = run_alpaca_cycle(args.symbol, args.ledger)
+            if args.provider in {"alpaca", "robinhood"}:
+                record = run_alpaca_cycle(args.symbol, args.ledger, adapter_kind=args.provider)
             else:
                 record = run_fixture_cycle(args.ledger)
             if args.save_report:

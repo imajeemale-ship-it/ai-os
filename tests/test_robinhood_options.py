@@ -12,6 +12,7 @@ from ai_os.robinhood_options import (
     OptionQuote,
     PaperAccount,
     PaperPolicy,
+    RobinhoodMCPDataAdapter,
     exercise_affordability,
     fixture_quote,
     market_session,
@@ -120,6 +121,33 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
     def test_alpaca_adapter_requires_credentials(self):
         with self.assertRaises(MarketDataUnavailable):
             AlpacaOptionsDataAdapter(key_id="", secret_key="")
+
+    def test_robinhood_adapter_blocks_order_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            credentials = Path(directory) / "credentials.json"
+            credentials.write_text(json.dumps({
+                "robinhood-trading|test": {
+                    "server_name": "robinhood-trading",
+                    "access_token": "test-token",
+                    "expires_at": 4070908800,
+                }
+            }))
+            adapter = RobinhoodMCPDataAdapter(credentials_path=credentials)
+            with self.assertRaisesRegex(MarketDataUnavailable, "robinhood_mcp_tool_not_allowed"):
+                adapter._tool("place_option_order", {})
+
+    def test_robinhood_adapter_rejects_expired_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            credentials = Path(directory) / "credentials.json"
+            credentials.write_text(json.dumps({
+                "robinhood-trading|test": {
+                    "server_name": "robinhood-trading",
+                    "access_token": "expired-token",
+                    "expires_at": 1577836800,
+                }
+            }))
+            with self.assertRaisesRegex(MarketDataUnavailable, "robinhood_mcp_credentials_expired"):
+                RobinhoodMCPDataAdapter(credentials_path=credentials)
 
     def test_alpaca_adapter_selects_policy_passing_call(self):
         payload = {
