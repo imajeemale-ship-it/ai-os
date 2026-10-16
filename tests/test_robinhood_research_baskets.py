@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from ai_os.robinhood_research_baskets import BASKETS, entry_opened_today, strategy_allowed
+from ai_os.robinhood_research_baskets import BASKETS, candidate_confirmed, entry_opened_today, entry_window_open, strategy_allowed
 
 
 def test_baskets_have_separate_windows_and_ledgers():
@@ -17,8 +17,10 @@ def test_baskets_enforce_budget_spread_and_distinct_exits():
     core = BASKETS["core_trend"]
     assert tactical["policy"].max_premium == 250.0
     assert tactical["policy"].target_min_premium == 100.0
-    assert tactical["policy"].max_spread_pct == 0.08
-    assert core["policy"].max_spread_pct == 0.08
+    assert tactical["policy"].max_spread_pct == 0.05
+    assert core["policy"].max_spread_pct == 0.05
+    assert tactical["policy"].slippage_pct == 0.0
+    assert core["policy"].slippage_pct == 0.0
     assert tactical["exit_rule"] == {"profit_target_pct": 0.20, "loss_limit_pct": -0.15}
     assert core["exit_rule"] == {"profit_target_pct": 0.30, "loss_limit_pct": -0.20}
 
@@ -42,3 +44,17 @@ def test_entry_opened_today_enforces_one_daily_entry(tmp_path):
         ledger,
         datetime(2026, 10, 16, 20, 0, tzinfo=timezone.utc),
     )
+
+
+def test_candidate_confirmation_requires_trend_and_correct_signal():
+    uptrend = {"established_uptrend": True}
+    assert candidate_confirmed("tactical", ["dean_ahrens_unusual_flow_proxy"], uptrend)
+    assert not candidate_confirmed("tactical", ["dean_ahrens_unusual_flow_proxy"], {"established_uptrend": False})
+    assert candidate_confirmed("core_trend", ["pullback_continuation_uptrend"], uptrend)
+    assert not candidate_confirmed("core_trend", ["dean_ahrens_unusual_flow_proxy"], uptrend)
+
+
+def test_entry_window_avoids_open_and_late_day():
+    assert not entry_window_open(datetime(2026, 10, 16, 13, 45, tzinfo=timezone.utc))
+    assert entry_window_open(datetime(2026, 10, 16, 14, 5, tzinfo=timezone.utc))
+    assert not entry_window_open(datetime(2026, 10, 16, 20, 0, tzinfo=timezone.utc))

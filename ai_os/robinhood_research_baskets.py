@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, time
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -26,14 +26,14 @@ DEFAULT_ROOT = Path.home() / ".ai-os" / "robinhood-options"
 BASKETS = {
     "tactical": {
         "ledger": DEFAULT_ROOT / "tactical_trades.jsonl",
-        "policy": PaperPolicy(min_dte=7, max_dte=21, comparison_dte=30, max_spread_pct=0.08),
-        "strategies": {"dean_ahrens_unusual_flow_proxy", "breakout_continuation"},
+        "policy": PaperPolicy(min_dte=7, max_dte=21, comparison_dte=30, max_spread_pct=0.05, slippage_pct=0.0),
+        "strategies": {"dean_ahrens_unusual_flow_proxy"},
         "exit_rule": {"profit_target_pct": 0.20, "loss_limit_pct": -0.15},
         "max_holding_days": 3,
     },
     "core_trend": {
         "ledger": DEFAULT_ROOT / "core_trend_trades.jsonl",
-        "policy": PaperPolicy(min_dte=30, max_dte=60, comparison_dte=45, max_spread_pct=0.08),
+        "policy": PaperPolicy(min_dte=30, max_dte=60, comparison_dte=45, max_spread_pct=0.05, slippage_pct=0.0),
         "strategies": {"breakout_continuation", "pullback_continuation_uptrend"},
         "exit_rule": {"profit_target_pct": 0.30, "loss_limit_pct": -0.20},
         "max_holding_days": 15,
@@ -43,6 +43,20 @@ BASKETS = {
 
 def strategy_allowed(matches: list[str], allowed: set[str]) -> bool:
     return bool(set(matches) & allowed)
+
+
+def candidate_confirmed(basket: str, matches: list[str], context: dict[str, Any]) -> bool:
+    if not context.get("established_uptrend"):
+        return False
+    if basket == "tactical":
+        return "dean_ahrens_unusual_flow_proxy" in matches
+    return bool({"breakout_continuation", "pullback_continuation_uptrend"} & set(matches))
+
+
+def entry_window_open(now: datetime | None = None) -> bool:
+    eastern = ZoneInfo("America/New_York")
+    current = (now or datetime.now(eastern)).astimezone(eastern)
+    return current.weekday() < 5 and time(10, 0) <= current.time() <= time(15, 30)
 
 
 def entry_opened_today(path: str | Path, now: datetime | None = None) -> bool:
@@ -88,6 +102,10 @@ def run_basket(
         "max_holding_days": config["max_holding_days"],
         "market_session": asdict(session),
     }
+    if not entry_window_open():
+        record = {**base, "status": "rejected", "entry_rejections": ["outside_confirmed_entry_window"], "quote": None, "order": None}
+        append_ledger(record, ledger)
+        return record
     if entry_opened_today(ledger):
         record = {**base, "status": "rejected", "entry_rejections": ["daily_basket_entry_limit_reached"], "quote": None, "order": None}
         append_ledger(record, ledger)
@@ -109,7 +127,8 @@ def run_basket(
             for quote in data.long_call_candidates(symbol, config["policy"]):
                 instrument_id = quote.source.partition(":")[2]
                 matches = data.strategy_matches.get(instrument_id, [])
-                if strategy_allowed(matches, config["strategies"]):
+                context = data.strategy_contexts.get(quote.symbol) or {}
+                if strategy_allowed(matches, config["strategies"]) and candidate_confirmed(basket, matches, context):
                     candidates.append(quote)
         except Exception as exc:
             rejected.append({"symbol": symbol, "reason": str(exc)})
