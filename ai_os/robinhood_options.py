@@ -399,6 +399,17 @@ def monitor_paper_position(ledger_path: str | Path | None = None) -> dict[str, A
     )
     score = score_exit(entry_price, current_bid, exit_rule)
     action = score["action"]
+    opened_at = datetime.fromisoformat(str(position.get("created_at")).replace("Z", "+00:00")).astimezone(EASTERN)
+    today = datetime.now(EASTERN).date()
+    cursor = opened_at.date()
+    business_days_held = 0
+    while cursor < today:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            business_days_held += 1
+    max_holding_days = _as_int(position.get("max_holding_days"), 0)
+    if action == "hold" and max_holding_days and business_days_held >= max_holding_days:
+        action = "exit_time_limit"
     record = {
         "record_type": "paper_position_monitor",
         "created_at": utc_now(),
@@ -414,6 +425,8 @@ def monitor_paper_position(ledger_path: str | Path | None = None) -> dict[str, A
         "pnl_pct": score["pnl_pct"],
         "estimated_net_pnl": round((current_bid - entry_price) * CONTRACT_MULTIPLIER, 2),
         "quote_time": quote.get("updated_at"),
+        "business_days_held": business_days_held,
+        "max_holding_days": max_holding_days,
         "exit_rule": asdict(exit_rule),
     }
     append_ledger(record, destination)

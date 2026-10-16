@@ -59,6 +59,30 @@ def entry_window_open(now: datetime | None = None) -> bool:
     return current.weekday() < 5 and time(10, 0) <= current.time() <= time(15, 30)
 
 
+def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | None = None) -> bool:
+    state_path = Path(ledger).with_suffix(".confirmation.json")
+    current = now or datetime.now(ZoneInfo("America/New_York"))
+    key = f"{quote.symbol}:{quote.expiration}:{quote.strike}"
+    previous: dict[str, Any] = {}
+    if state_path.exists():
+        try:
+            previous = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+    previous_time = previous.get("observed_at")
+    age_minutes = None
+    if previous_time:
+        observed = datetime.fromisoformat(previous_time.replace("Z", "+00:00"))
+        age_minutes = (current.astimezone(ZoneInfo("UTC")) - observed.astimezone(ZoneInfo("UTC"))).total_seconds() / 60
+    confirmed = previous.get("key") == key and age_minutes is not None and 5 <= age_minutes <= 30
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    if confirmed:
+        state_path.unlink(missing_ok=True)
+    else:
+        state_path.write_text(json.dumps({"key": key, "observed_at": current.isoformat()}), encoding="utf-8")
+    return confirmed
+
+
 def entry_opened_today(path: str | Path, now: datetime | None = None) -> bool:
     ledger = Path(path)
     if not ledger.exists():
@@ -146,6 +170,18 @@ def run_basket(
         return record
 
     selected = ranked[0]["quote"]
+    if not candidate_confirmed_twice(selected, ledger):
+        record = {
+            **base,
+            "status": "rejected",
+            "entry_rejections": ["awaiting_second_consecutive_confirmation"],
+            "quote": asdict(selected),
+            "order": None,
+            "due_diligence": ranked[0]["due_diligence"],
+            "candidate_rankings": [item["due_diligence"] for item in ranked[:5]],
+        }
+        append_ledger(record, ledger)
+        return record
     record = paper_trade_cycle(
         selected,
         PaperAccount(buying_power=250.0, settled_cash=5000.0),
