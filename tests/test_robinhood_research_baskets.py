@@ -1,4 +1,7 @@
-from ai_os.robinhood_research_baskets import BASKETS, strategy_allowed
+import json
+from datetime import datetime, timezone
+
+from ai_os.robinhood_research_baskets import BASKETS, entry_opened_today, strategy_allowed
 
 
 def test_baskets_have_separate_windows_and_ledgers():
@@ -23,3 +26,19 @@ def test_baskets_enforce_budget_spread_and_distinct_exits():
 def test_strategy_allowlist_requires_a_matching_method():
     assert strategy_allowed(["breakout_continuation"], {"breakout_continuation"})
     assert not strategy_allowed(["dean_ahrens_unusual_flow_proxy"], {"pullback_continuation_uptrend"})
+
+
+def test_entry_opened_today_enforces_one_daily_entry(tmp_path):
+    ledger = tmp_path / "basket.jsonl"
+    ledger.write_text(json.dumps({
+        "status": "filled_and_scored",
+        "created_at": "2026-10-15T14:50:00+00:00",
+    }) + "\n")
+    assert entry_opened_today(
+        ledger,
+        datetime(2026, 10, 15, 20, 0, tzinfo=timezone.utc),
+    )
+    assert not entry_opened_today(
+        ledger,
+        datetime(2026, 10, 16, 20, 0, tzinfo=timezone.utc),
+    )

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime
+import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from ai_os.robinhood_options import (
@@ -42,6 +45,24 @@ def strategy_allowed(matches: list[str], allowed: set[str]) -> bool:
     return bool(set(matches) & allowed)
 
 
+def entry_opened_today(path: str | Path, now: datetime | None = None) -> bool:
+    ledger = Path(path)
+    if not ledger.exists():
+        return False
+    eastern = ZoneInfo("America/New_York")
+    today = (now or datetime.now(eastern)).astimezone(eastern).date()
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("status") != "filled_and_scored":
+            continue
+        created = datetime.fromisoformat(str(record.get("created_at", "")).replace("Z", "+00:00"))
+        if created.astimezone(eastern).date() == today:
+            return True
+    return False
+
+
 def run_basket(
     basket: str,
     symbols: str | list[str],
@@ -67,6 +88,10 @@ def run_basket(
         "max_holding_days": config["max_holding_days"],
         "market_session": asdict(session),
     }
+    if entry_opened_today(ledger):
+        record = {**base, "status": "rejected", "entry_rejections": ["daily_basket_entry_limit_reached"], "quote": None, "order": None}
+        append_ledger(record, ledger)
+        return record
     if latest_open_position(ledger):
         record = {**base, "status": "rejected", "entry_rejections": ["basket_position_already_open"], "quote": None, "order": None}
         append_ledger(record, ledger)
