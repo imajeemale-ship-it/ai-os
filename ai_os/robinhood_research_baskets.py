@@ -23,6 +23,7 @@ from ai_os.robinhood_options import (
 )
 
 DEFAULT_ROOT = Path.home() / ".ai-os" / "robinhood-options"
+PAUSE_FILE = DEFAULT_ROOT / "PAPER_ENTRIES_PAUSED"
 BASKETS = {
     "tactical": {
         "ledger": DEFAULT_ROOT / "tactical_trades.jsonl",
@@ -126,6 +127,10 @@ def run_basket(
         "max_holding_days": config["max_holding_days"],
         "market_session": asdict(session),
     }
+    if PAUSE_FILE.exists():
+        record = {**base, "status": "rejected", "entry_rejections": ["paper_entries_paused_by_owner"], "quote": None, "order": None}
+        append_ledger(record, ledger)
+        return record
     if not entry_window_open():
         record = {**base, "status": "rejected", "entry_rejections": ["outside_confirmed_entry_window"], "quote": None, "order": None}
         append_ledger(record, ledger)

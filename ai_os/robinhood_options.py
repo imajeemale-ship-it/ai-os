@@ -20,6 +20,7 @@ CONTRACT_MULTIPLIER = 100
 DEFAULT_OPTIONS_DIR = Path.home() / ".ai-os" / "robinhood-options"
 DEFAULT_LEDGER = DEFAULT_OPTIONS_DIR / "paper_trades.jsonl"
 DEFAULT_REPORT = DEFAULT_OPTIONS_DIR / "latest_morning_report.md"
+PAPER_PAUSE_FILE = DEFAULT_OPTIONS_DIR / "PAPER_ENTRIES_PAUSED"
 ALPACA_SECRET_FILE = Path.home() / ".ai-os" / "secrets" / "alpaca.env"
 EASTERN = ZoneInfo("America/New_York")
 
@@ -888,6 +889,16 @@ def run_alpaca_cycle(
     session = market_session()
     symbols = _normalize_symbols(symbol)
     active_ledger = Path(ledger_path or DEFAULT_LEDGER)
+    if PAPER_PAUSE_FILE.exists():
+        record = {
+            "record_type": "paper_options_cycle", "created_at": utc_now(), "mode": "paper_only",
+            "live_trading_allowed": False, "status": "rejected",
+            "entry_rejections": ["paper_entries_paused_by_owner"], "symbols_checked": symbols,
+            "quote": None, "order": None, "exit_scores": [],
+            "morning_summary": "New paper entries are paused by the authorized owner.",
+        }
+        append_ledger(record, active_ledger)
+        return record
     not_before = os.getenv("AI_OS_OPTIONS_NOT_BEFORE", "").strip()
     if not_before and datetime.now(EASTERN).date() < datetime.fromisoformat(not_before).date():
         record = {
