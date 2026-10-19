@@ -7,7 +7,7 @@ def retrieve(url,directory):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     meta=inspect(url)
     canonical=meta['url']
-    cmd=[sys.executable,'-m','yt_dlp','--no-playlist','--no-progress','--max-filesize','300M','-f','best[ext=mp4][height<=720]/best[height<=720]/best','-o',str(directory/'source.%(ext)s'),canonical]
+    cmd=[sys.executable,'-m','yt_dlp','--no-playlist','--no-progress','--js-runtimes','node','--max-filesize','300M','-f','bv*[height<=720]+ba/b[height<=720]/bv*+ba/b','-o',str(directory/'source.%(ext)s'),canonical]
     p=subprocess.run(cmd,capture_output=True,text=True,timeout=240)
     if p.returncode:raise RuntimeError('YouTube retrieval unavailable: '+p.stderr[-350:])
     matches=[x for x in directory.glob('source.*') if x.suffix.lower() in ('.mp4','.webm','.mkv','.mov')]
