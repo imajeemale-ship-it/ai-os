@@ -14,4 +14,9 @@ def retrieve(url,directory):
     if not matches:raise RuntimeError('No supported media retrieved')
     path=matches[0]
     if path.stat().st_size>300*1024*1024: path.unlink();raise RuntimeError('Video exceeds 300MB limit')
+    if path.suffix.lower() not in ('.mp4','.mov'):
+        converted=directory/'source.mp4'
+        mux=subprocess.run(['ffmpeg','-y','-i',str(path),'-c','copy',str(converted)],capture_output=True,text=True,timeout=120)
+        if mux.returncode:raise RuntimeError('Cannot remux retrieved video to MP4: '+mux.stderr[-250:])
+        path.unlink();path=converted
     return meta,path
