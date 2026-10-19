@@ -2,18 +2,46 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-import json, os, tempfile, uuid
+import json, os, tempfile, uuid, threading
+from url_jobs import retrieve
 from engine import inspect
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
-HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVI Studio</title><style>body{font:16px system-ui;background:#10151e;color:#e9eef5;max-width:850px;margin:50px auto;padding:20px}button,input{padding:12px;border-radius:8px}button{background:#8cc5ff;border:0;cursor:pointer}pre{white-space:pre-wrap;background:#202b3a;padding:20px;border-radius:12px}small{color:#aab8c7}</style></head><body><h1>M3 Video Intelligence</h1><p>Upload a gaming video to extract timestamped evidence and technical findings.</p><input id="file" type="file" accept="video/mp4,video/quicktime"><button onclick="go()">Analyze</button><p id="status"></p><pre id="result">Awaiting video</pre><small>Prototype: no creative scoring yet. Local access only. Do not expose to the public internet.</small><script>async function go(){let f=document.getElementById('file').files[0];if(!f)return;document.getElementById('status').textContent='Processing…';try{let r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});let data=await r.json();document.getElementById('result').textContent=JSON.stringify(data,null,2);document.getElementById('status').textContent=r.ok?'Analysis finished':'Error';}catch(e){document.getElementById('status').textContent=e.message}}</script></body></html>'''
+HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVI Studio</title><style>body{font:16px system-ui;background:#10151e;color:#e9eef5;max-width:850px;margin:50px auto;padding:20px}button,input{padding:12px;border-radius:8px}button{background:#8cc5ff;border:0;cursor:pointer}pre{white-space:pre-wrap;background:#202b3a;padding:20px;border-radius:12px}small{color:#aab8c7}</style></head><body><h1>M3 Video Intelligence</h1><p>Paste a YouTube link, or upload a video. Processing runs locally.</p><input id="url" placeholder="https://www.youtube.com/watch?v=..." style="width:70%"><button onclick="submitUrl()">Analyze link</button><hr><input id="file" type="file" accept="video/mp4,video/quicktime"><button onclick="go()">Analyze</button><p id="status"></p><pre id="result">Awaiting video</pre><small>Prototype: no creative scoring yet. Local access only. Do not expose to the public internet.</small><script>async function submitUrl(){let u=document.getElementById("url").value;document.getElementById("status").textContent="Submitting…";try{let r=await fetch("/api/url",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});let d=await r.json();document.getElementById("result").textContent=JSON.stringify(d,null,2);if(!r.ok)return;let id=d.job_id;let poll=async()=>{let x=await fetch("/api/jobs/"+id);let j=await x.json();document.getElementById("result").textContent=JSON.stringify(j,null,2);document.getElementById("status").textContent=j.status;if(j.status==="queued"||j.status==="running")setTimeout(poll,2500)};poll()}catch(e){document.getElementById("status").textContent=e.message}} async function go(){let f=document.getElementById('file').files[0];if(!f)return;document.getElementById('status').textContent='Processing…';try{let r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});let data=await r.json();document.getElementById('result').textContent=JSON.stringify(data,null,2);document.getElementById('status').textContent=r.ok?'Analysis finished':'Error';}catch(e){document.getElementById('status').textContent=e.message}}</script></body></html>'''
+JOBS={}
+def run_url_job(job,url,directory):
+ try:
+  JOBS[job]["status"]="running"
+  meta,path=retrieve(url,directory)
+  result=inspect(path,directory/"evidence")
+  JOBS[job].update({"status":"completed","metadata":meta,"technical_report":result,"creative_score":None})
+ except Exception as exc:JOBS[job].update({"status":"failed","error":str(exc)[:500]})
+ (directory/"job.json").write_text(json.dumps(JOBS[job],indent=2))
 class Handler(BaseHTTPRequestHandler):
  def respond(self,code,data,kind='application/json'):
   b=data.encode() if isinstance(data,str) else json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def do_GET(self):
   if self.path=='/':return self.respond(200,HTML,'text/html; charset=utf-8')
+  if self.path.startswith('/api/jobs/'):
+   job=self.path.split('/')[-1]
+   if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):return self.respond(400,{'error':'invalid job'})
+   if job in JOBS:return self.respond(200,JOBS[job])
+   saved=ROOT/job/'job.json'
+   return self.respond(200,json.loads(saved.read_text())) if saved.is_file() else self.respond(404,{'error':'job not found'})
   if self.path=='/health':return self.respond(200,{'status':'ok','version':'prototype'})
   self.respond(404,{'error':'not found'})
  def do_POST(self):
+  if self.path=='/api/url':
+   try:
+    size=int(self.headers.get('Content-Length','0'))
+    if not 0<size<=4096:return self.respond(400,{'error':'invalid request size'})
+    data=json.loads(self.rfile.read(size));url=data['url']
+    from link_intake import video_id
+    video_id(url)
+    job=uuid.uuid4().hex;directory=ROOT/job;directory.mkdir(parents=True,exist_ok=False)
+    JOBS[job]={'job_id':job,'status':'queued','url':url,'creative_score':None}
+    threading.Thread(target=run_url_job,args=(job,url,directory),daemon=True).start()
+    return self.respond(202,JOBS[job])
+   except Exception as exc:return self.respond(400,{'error':str(exc)[:250]})
   if self.path!='/api/upload':return self.respond(404,{'error':'not found'})
   try:
    length=int(self.headers.get('Content-Length','0'))
