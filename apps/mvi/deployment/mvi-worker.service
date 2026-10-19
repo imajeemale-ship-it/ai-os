@@ -1,0 +1,25 @@
+[Unit]
+Description=MVI durable video worker (private pilot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mvi
+Group=mvi
+WorkingDirectory=/opt/ai-os/apps/mvi
+Environment=MVI_DATA_DIR=/var/lib/mvi
+Environment=MVI_DURABLE_QUEUE=1
+Environment=MVI_ENABLE_LOCAL_VISION=0
+ExecStart=/opt/ai-os/apps/mvi/.venv/bin/python /opt/ai-os/apps/mvi/durable_runtime.py --root /var/lib/mvi
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/mvi
+
+[Install]
+WantedBy=multi-user.target
