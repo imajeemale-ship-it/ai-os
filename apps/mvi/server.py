@@ -8,6 +8,7 @@ from engine import inspect
 from editor_handoff import build_brief
 from review_pipeline import review
 from job_state import save as save_job, load as load_job
+import durable_runtime as durable
 from vindex_runner import compile_video_evidence
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
 HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVI Studio</title><style>body{font:16px system-ui;background:#10151e;color:#e9eef5;max-width:850px;margin:50px auto;padding:20px}button,input{padding:12px;border-radius:8px}button{background:#8cc5ff;border:0;cursor:pointer}pre{white-space:pre-wrap;background:#202b3a;padding:20px;border-radius:12px}small{color:#aab8c7}</style></head><body><h1>M3 Video Intelligence</h1><p>Paste a YouTube link, or upload a video. Processing runs locally.</p><input id="url" placeholder="https://www.youtube.com/watch?v=..." style="width:70%"><button onclick="submitUrl()">Analyze link</button><hr><input id="file" type="file" accept="video/mp4,video/quicktime"><button onclick="go()">Analyze</button><p id="status"></p><pre id="result">Awaiting video</pre><small>Prototype: no creative scoring yet. Local access only. Do not expose to the public internet.</small><script>async function submitUrl(){let u=document.getElementById("url").value;document.getElementById("status").textContent="Submitting…";try{let r=await fetch("/api/url",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});let d=await r.json();document.getElementById("result").textContent=JSON.stringify(d,null,2);if(!r.ok)return;let id=d.job_id;let poll=async()=>{let x=await fetch("/api/jobs/"+id);let j=await x.json();document.getElementById("result").textContent=JSON.stringify(j,null,2);document.getElementById("status").textContent=j.status;if(j.report_url){document.getElementById("status").innerHTML="Completed — <a style=\"color:#8cc5ff\" href=\""+j.report_url+"\" target=\"_blank\">Open editor report</a> · <a style=\"color:#8cc5ff\" href=\""+j.handoff_url+"\" target=\"_blank\">David handoff</a>";}if(j.status==="queued"||j.status==="retrieving"||j.status==="running"||j.status==="compiling_timeline"||j.status==="reviewing_frames")setTimeout(poll,2500)};poll()}catch(e){document.getElementById("status").textContent=e.message}} async function go(){let f=document.getElementById('file').files[0];if(!f)return;document.getElementById('status').textContent='Processing…';try{let r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});let data=await r.json();document.getElementById('result').textContent=JSON.stringify(data,null,2);document.getElementById('status').textContent=r.ok?'Analysis queued':'Error';if(r.ok)pollUpload(data.job_id);}catch(e){document.getElementById('status').textContent=e.message}} async function pollUpload(id){try{let r=await fetch('/api/jobs/'+id);let j=await r.json();document.getElementById('result').textContent=JSON.stringify(j,null,2);document.getElementById('status').textContent=j.status;if(j.report_url){document.getElementById('status').innerHTML='Completed — <a href="'+j.report_url+'">Open editor report</a> · <a href="'+j.handoff_url+'">David handoff</a>';}if(['queued','running','compiling_timeline','reviewing_frames'].includes(j.status))setTimeout(()=>pollUpload(id),2500)}catch(e){document.getElementById('status').textContent=e.message}}</script></body></html>'''
@@ -53,6 +54,9 @@ class Handler(BaseHTTPRequestHandler):
   if self.path.startswith('/api/jobs/'):
    job=self.path.split('/')[-1]
    if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):return self.respond(400,{'error':'invalid job'})
+   if durable.enabled():
+    queued=durable.state(ROOT,job)
+    return self.respond(200,queued) if queued is not None else self.respond(404,{'error':'job not found'})
    if job in JOBS:return self.respond(200,JOBS[job])
    saved=ROOT/job/'job.json'
    return self.respond(200,load_job(saved)) if saved.is_file() else self.respond(404,{'error':'job not found'})
@@ -63,6 +67,10 @@ class Handler(BaseHTTPRequestHandler):
    if len(job)!=32 or any(c not in '0123456789abcdef' for c in job):return self.respond(400,{'error':'invalid job'})
    names={'editor':'EDITOR_REPORT.md','handoff':'DAVID_EDITOR_HANDOFF.md','timeline':'editor_report.json'}
    if kind not in names:return self.respond(404,{'error':'unknown report'})
+   if durable.enabled():
+    queued=durable.state(ROOT,job)
+    if queued is None:return self.respond(404,{'error':'job not found'})
+    if queued['status']!='completed':return self.respond(404,{'error':'report not ready'})
    path=ROOT/job/names[kind]
    if not path.is_file():return self.respond(404,{'error':'report not ready'})
    return self.respond(200,path.read_text(),'application/json' if kind=='timeline' else 'text/markdown; charset=utf-8')
@@ -79,7 +87,8 @@ class Handler(BaseHTTPRequestHandler):
     job=uuid.uuid4().hex;directory=ROOT/job;directory.mkdir(mode=0o700,parents=True,exist_ok=False)
     JOBS[job]={'job_id':job,'status':'queued','url':url,'creative_score':None}
     save_job(directory,JOBS[job])
-    threading.Thread(target=run_url_job,args=(job,url,directory),daemon=True).start()
+    if durable.enabled():durable.enqueue(ROOT,job,'url',{'url':url})
+    else:threading.Thread(target=run_url_job,args=(job,url,directory),daemon=True).start()
     return self.respond(202,JOBS[job])
    except Exception as exc:return self.respond(400,{'error':str(exc)[:250]})
   if self.path!='/api/upload':return self.respond(404,{'error':'not found'})
@@ -98,7 +107,8 @@ class Handler(BaseHTTPRequestHandler):
      out.write(chunk);remaining-=len(chunk)
    JOBS[job]={'job_id':job,'status':'queued','title':name[:200],'creative_score':None}
    save_job(directory,JOBS[job])
-   threading.Thread(target=run_media_job,args=(job,video,directory,{'title':name[:200]}),daemon=True).start()
+   if durable.enabled():durable.enqueue(ROOT,job,'upload',{'filename':video.name,'title':name[:200]})
+   else:threading.Thread(target=run_media_job,args=(job,video,directory,{'title':name[:200]}),daemon=True).start()
    self.respond(202,JOBS[job])
   except Exception as exc:self.respond(400,{'error':str(exc)[:250]})
 if __name__=='__main__':
