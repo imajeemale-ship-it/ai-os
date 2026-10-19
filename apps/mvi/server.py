@@ -6,6 +6,7 @@ import json, os, tempfile, uuid, threading
 from url_jobs import retrieve
 from engine import inspect
 from editor_handoff import build_brief
+from editor_report import save_report
 from vindex_runner import compile_video_evidence
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
 HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVI Studio</title><style>body{font:16px system-ui;background:#10151e;color:#e9eef5;max-width:850px;margin:50px auto;padding:20px}button,input{padding:12px;border-radius:8px}button{background:#8cc5ff;border:0;cursor:pointer}pre{white-space:pre-wrap;background:#202b3a;padding:20px;border-radius:12px}small{color:#aab8c7}</style></head><body><h1>M3 Video Intelligence</h1><p>Paste a YouTube link, or upload a video. Processing runs locally.</p><input id="url" placeholder="https://www.youtube.com/watch?v=..." style="width:70%"><button onclick="submitUrl()">Analyze link</button><hr><input id="file" type="file" accept="video/mp4,video/quicktime"><button onclick="go()">Analyze</button><p id="status"></p><pre id="result">Awaiting video</pre><small>Prototype: no creative scoring yet. Local access only. Do not expose to the public internet.</small><script>async function submitUrl(){let u=document.getElementById("url").value;document.getElementById("status").textContent="Submitting…";try{let r=await fetch("/api/url",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});let d=await r.json();document.getElementById("result").textContent=JSON.stringify(d,null,2);if(!r.ok)return;let id=d.job_id;let poll=async()=>{let x=await fetch("/api/jobs/"+id);let j=await x.json();document.getElementById("result").textContent=JSON.stringify(j,null,2);document.getElementById("status").textContent=j.status;if(j.status==="queued"||j.status==="running"||j.status==="compiling_timeline")setTimeout(poll,2500)};poll()}catch(e){document.getElementById("status").textContent=e.message}} async function go(){let f=document.getElementById('file').files[0];if(!f)return;document.getElementById('status').textContent='Processing…';try{let r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});let data=await r.json();document.getElementById('result').textContent=JSON.stringify(data,null,2);document.getElementById('status').textContent=r.ok?'Analysis finished':'Error';}catch(e){document.getElementById('status').textContent=e.message}}</script></body></html>'''
@@ -24,7 +25,8 @@ def run_url_job(job,url,directory):
    timeline=None
    vindex_status="unavailable: "+str(exc)[:250]
   (directory/"DAVID_EDITOR_HANDOFF.md").write_text(build_brief(meta.get('title','M3 video'),timeline))
-  JOBS[job].update({"status":"completed","metadata":meta,"technical_report":result,"vindex_status":vindex_status,"timeline":timeline,"editor_handoff_file":"DAVID_EDITOR_HANDOFF.md","creative_score":None})
+  editor_report=save_report(directory,meta,result,timeline)
+  JOBS[job].update({"status":"completed","metadata":meta,"technical_report":result,"vindex_status":vindex_status,"timeline":timeline,"editor_handoff_file":"DAVID_EDITOR_HANDOFF.md","editor_report":editor_report,"creative_score":None})
  except Exception as exc:JOBS[job].update({"status":"failed","error":str(exc)[:500]})
  (directory/"job.json").write_text(json.dumps(JOBS[job],indent=2))
 class Handler(BaseHTTPRequestHandler):
