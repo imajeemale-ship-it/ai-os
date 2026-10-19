@@ -68,10 +68,9 @@ class Handler(BaseHTTPRequestHandler):
    names={'editor':'EDITOR_REPORT.md','handoff':'DAVID_EDITOR_HANDOFF.md','timeline':'editor_report.json'}
    if kind not in names:return self.respond(404,{'error':'unknown report'})
    if durable.enabled():
-    queued=durable.state(ROOT,job)
-    if queued is None:return self.respond(404,{'error':'job not found'})
-    if queued['status']!='completed':return self.respond(404,{'error':'report not ready'})
-   path=ROOT/job/names[kind]
+    path=durable.report_path(ROOT,job,kind)
+    if path is None:return self.respond(404,{'error':'report not ready'})
+   else:path=ROOT/job/names[kind]
    if not path.is_file():return self.respond(404,{'error':'report not ready'})
    return self.respond(200,path.read_text(),'application/json' if kind=='timeline' else 'text/markdown; charset=utf-8')
   if self.path=='/health':return self.respond(200,{'status':'ok','version':'prototype'})

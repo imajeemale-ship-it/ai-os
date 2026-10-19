@@ -1,5 +1,6 @@
 """Opt-in durable MVI API/worker runtime. Single-host private prototype."""
 import json
+import tempfile
 import os
 import time
 from pathlib import Path
@@ -29,24 +30,35 @@ def state(root, job_id):
     entry=queue(root).get(job_id)
     if entry is None:
         return None
-    directory=Path(root)/job_id
     status=entry['status']
-    # A report is visible only after the durable queue acknowledges completion.
     if status=='completed':
         winner=(entry.get('result') or {}).get('attempt')
         if winner is not None:
-            path=directory/'job.json'
-            if not path.is_file() or json.loads(path.read_text()).get('attempt')!=winner:
-                publish(root,job_id,winner)
-        path=directory/'job.json'
-        if path.is_file():
-            result=json.loads(path.read_text())
-            result['status']='completed'
-            return result
+            path=Path(root)/job_id/('attempt-'+str(winner))/'job.json'
+            if path.is_file():
+                result=json.loads(path.read_text())
+                result.update(status='completed',
+                    report_url=f'/api/reports/{job_id}/editor',
+                    handoff_url=f'/api/reports/{job_id}/handoff')
+                return result
     return {'job_id':job_id,'status':status,'attempts':entry['attempts'],
             'error':entry['error'] if status=='failed' else None,
             'creative_score':None}
 
+
+def report_path(root,job_id,kind):
+    entry=queue(root).get(job_id)
+    if entry is None or entry['status']!='completed':
+        return None
+    winner=(entry.get('result') or {}).get('attempt')
+    if not isinstance(winner,int):
+        return None
+    names={'editor':'EDITOR_REPORT.md','handoff':'DAVID_EDITOR_HANDOFF.md',
+           'timeline':'editor_report.json'}
+    if kind not in names:
+        return None
+    path=Path(root)/job_id/('attempt-'+str(winner))/names[kind]
+    return path if path.is_file() else None
 
 def process(root, claim):
     job=claim['job_id'];directory=Path(root)/job
@@ -82,29 +94,9 @@ def process(root, claim):
 
 
 def work_once(root):
-    q=queue(root)
-    result=run_once(q,lambda claim:process(root,claim))
-    if result is not None:
-        job=result['job_id'];attempt=result['result']['attempt']
-        # Post-ack publication is repeatable and reads only the winning attempt.
-        publish(root,job,attempt)
-    return result
-
-
-def publish(root,job,attempt):
-    directory=Path(root)/job
-    source=directory/('attempt-'+str(attempt))
-    if queue(root).get(job).get('result',{}).get('attempt') != attempt:
-        raise RuntimeError('Cannot publish unacknowledged attempt')
-    for filename in ('EDITOR_REPORT.md','DAVID_EDITOR_HANDOFF.md','editor_report.json'):
-        src=source/filename
-        if src.is_file():
-            (directory/filename).write_bytes(src.read_bytes())
-    state=json.loads((source/'job.json').read_text())
-    state.update(report_url=f'/api/reports/{job}/editor',
-                 handoff_url=f'/api/reports/{job}/handoff')
-    save_job(directory,state)
-
+    # Reports stay in the winning attempt directory, so readers never observe
+    # partially copied artifacts or output from an expired competing worker.
+    return run_once(queue(root),lambda claim:process(root,claim))
 
 def serve_worker(root,poll=2):
     while True:
