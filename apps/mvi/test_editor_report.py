@@ -6,8 +6,11 @@ class EditorReportTests(unittest.TestCase):
   self.assertIsNone(r['creative_score']);self.assertEqual(len(r['timeline']),1)
   self.assertIn('not proof',r['limitations'][0]);self.assertTrue(r['timeline'][0]['verified'])
  def test_bad_vision_timestamps_excluded(self):
-  r=build_report({}, {'duration_seconds':10},visual_review={'observations':[{'timestamp_seconds':50,'observation':'Invalid'},{'timestamp_seconds':5,'observation':'Game map visible'}]})
+  r=build_report({}, {'duration_seconds':10},visual_review={'evidence_frames':[{'timestamp_seconds':5,'file':'frame.jpg'}],'observations':[{'timestamp_seconds':50,'observation':'Invalid'},{'timestamp_seconds':5,'observation':'Game map visible'}]})
   self.assertEqual(len(r['timeline']),1);self.assertFalse(r['timeline'][0]['verified'])
+ def test_unproven_vision_timestamp_rejected(self):
+  r=build_report({}, {'duration_seconds':61}, visual_review={'evidence_frames':[{'timestamp_seconds':0.5}], 'observations':[{'timestamp_seconds':35,'observation':'Imagined scene'}]})
+  self.assertEqual(r['timeline'],[])
  def test_persist(self):
   with tempfile.TemporaryDirectory() as d:
    save_report(d,{}, {'duration_seconds':30});from pathlib import Path

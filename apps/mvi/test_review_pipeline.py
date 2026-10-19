@@ -11,7 +11,7 @@ class ReviewTests(unittest.TestCase):
    self.assertIsNone(r['creative_score']);self.assertTrue(r['review_warnings'])
  def test_vision_observations_not_verified(self):
   with tempfile.TemporaryDirectory() as d:
-   with patch('review_pipeline.evaluate',return_value={'observations':[{'timestamp_seconds':3,'observation':'Vehicle visible'}]}):
+   with patch('review_pipeline.evaluate',return_value={'evidence_frames':[{'timestamp_seconds':3,'file':'frame.jpg'}],'observations':[{'timestamp_seconds':3,'observation':'Vehicle visible'}]}):
     r=review(d,{}, {'duration_seconds':15})
    self.assertFalse(r['timeline'][0]['verified'])
 if __name__=='__main__':unittest.main()
