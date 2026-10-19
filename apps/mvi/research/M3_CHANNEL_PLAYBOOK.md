@@ -19,3 +19,8 @@ Status: chapter metadata confirmed; caption retrieval rate-limited; secondary vi
 
 ### Source caveat
 YouTube auto-caption endpoint returned HTTP 429 on 2026-10-19. Reattempt with backoff or an authorized alternative; do not fabricate a transcript.
+
+## Research 002: Jon Youshaei — YouTube Masterclass 2025
+Source: https://youtu.be/h-8C3bntQRo
+Verified original English auto-captions (machine-generated); see `002_YOUTUBE_MASTERCLASS.md` for timestamped takeaways.
+New M3 rules to test: use visual anchors; make opening stakes legible; thumbnail Five C's (composition, context, clean, curiosity, color); test macro thumbnail concepts before micro tweaks; evaluate Shorts' first frame; avoid visual fatigue; adapt competitor outliers with a distinctive M3 angle. Keep packaging and editing evaluations separate.
