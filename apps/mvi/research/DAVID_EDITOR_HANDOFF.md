@@ -1,0 +1,25 @@
+# M3 Editor Handoff — David's M3 edit
+
+## What MVI has verified
+Scene boundaries pending Vindex compilation.
+Editorial quality, timing of jokes, viewer retention and audio quality have **not** been assessed unless accompanied by timestamped audiovisual observations.
+
+## David's first editing pass
+- **Opening (0–15s):** Does the viewer immediately understand the GTA challenge, conflict or stakes? Put the strongest *honest* visual anchor early.
+- **Story:** Can a first-time viewer follow what Rico wants, what goes wrong and why it matters? Remove dead time that adds no character or payoff.
+- **Visual clarity:** Check whether overlapping text, zooms, stickers and cuts compete for attention. Avoid eye fatigue; keep the focal point clear.
+- **Sound:** Keep speech/gameplay intelligible. Use music and effects to strengthen, not mask, a joke or reveal.
+- **Payoff:** Deliver on the opening promise, then give the viewer a reason to watch the next M3 episode.
+- **Packaging:** Draft three *different* thumbnail concepts using the Five C's (composition, context, clean, curiosity, color). Title must accurately reflect the edit.
+- **Shorts:** Treat frame zero as the opening hook; don't assume long-form thumbnail rules apply unchanged.
+
+## M3 team workflow
+Rico: supply source gameplay, highlights and context. David: edit, story and packaging drafts. KD: approve creative direction and publishing decisions. MVI: timestamped evidence, review prompts and experiments.
+
+## Research basis
+https://youtu.be/h-8C3bntQRo — Jon Youshaei, YouTube Masterclass 2025. English auto-captions retrieved; these are suggested tests, not guaranteed YouTube rules.
+See `M3_CHANNEL_PLAYBOOK.md` and `002_YOUTUBE_MASTERCLASS.md`.
+
+## Before publishing
+Confirm edit quality by watching the actual footage; review phone-size thumbnail; check copyright/music permissions; use YouTube analytics after publication to evaluate hypotheses.
+
