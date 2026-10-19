@@ -1,0 +1,18 @@
+{
+  "file": "M3_Part00_RoughCut_480p.mp4",
+  "duration_seconds": 111.02,
+  "resolution": "854x480",
+  "frame_rate": "19001/317",
+  "video_codec": "h264",
+  "audio_present": true,
+  "audio_codec": "aac",
+  "technical_observations": [
+    "Audio stream present"
+  ],
+  "content_quality_score": null,
+  "youtube_optimization_score": null,
+  "recommendation": "NOT_SCORED",
+  "limitations": [
+    "Technical metadata only; no visual/audio semantic analysis performed. Creative scoring withheld."
+  ]
+}
