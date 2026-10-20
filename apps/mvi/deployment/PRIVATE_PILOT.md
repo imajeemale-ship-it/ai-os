@@ -1,6 +1,6 @@
 # MVI private single-host pilot deployment template
 
-Not deployed. Do not expose port 8765 to the internet: HTTP endpoints have no authentication.
+Not deployed. Do not expose port 8765 to the internet: token authentication is prototype-only and does not replace production access controls.
 The two systemd units are templates for a Linux machine with `/opt/ai-os/apps/mvi`,
 a dedicated unprivileged `mvi` user, and a private writable `/var/lib/mvi`.
 Dependencies (ffmpeg, yt-dlp, Python environment) must be installed and verified.
@@ -20,3 +20,16 @@ there are no users, roles, rate limits, HTTPS termination, or secret rotation.
 Keep the API bound to loopback and do not publish the service publicly.
 
 Production-mode service template requires a private `/etc/mvi/api.env` containing `MVI_API_TOKEN`, readable only by the service administrator. Missing token now prevents API startup. The Linux unit templates set a 2 GiB memory cap, 150% CPU quota, and process/file limits. These limits have not been verified against representative video workloads.
+
+
+## Queue snapshots
+
+A consistent queue-only snapshot can be made while the worker is active:
+
+`python deployment/backup_queue.py --root /var/lib/mvi --output /var/backups/mvi/queue-YYYYMMDD.db`
+
+Each output name must be unique; the command refuses to overwrite an existing snapshot.
+Snapshots contain queue metadata and payloads, **not video uploads, evidence, or reports**.
+A recoverable installation also needs secure backups of `/var/lib/mvi` job media and
+outputs, coordinated with queue state. Never claim full disaster recovery from a
+queue-only snapshot. Do not restore a snapshot over a running service.
