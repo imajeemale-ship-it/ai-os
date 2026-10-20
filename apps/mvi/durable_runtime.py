@@ -1,6 +1,5 @@
 """Opt-in durable MVI API/worker runtime. Single-host private prototype."""
 import json
-import tempfile
 import os
 import time
 from pathlib import Path
@@ -69,8 +68,11 @@ def process(root, claim):
     if claim['kind']=='url':
         meta,path=retrieve(payload['url'],attempt_dir)
     else:
-        path=directory/payload['filename']
-        if not path.is_file():
+        filename=payload['filename']
+        if filename not in ('upload.mp4','upload.mov'):
+            raise ValueError('Unsupported queued upload filename')
+        path=directory/filename
+        if not path.is_file() or path.is_symlink():
             raise FileNotFoundError('Durable upload is missing')
         meta={'title':payload['title']}
     technical=inspect(path,attempt_dir/'evidence')
