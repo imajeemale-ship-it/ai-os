@@ -11,6 +11,14 @@ from job_state import save as save_job, load as load_job
 import durable_runtime as durable
 from vindex_runner import compile_video_evidence
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
+
+def authorized(handler):
+ token=os.environ.get('MVI_API_TOKEN','')
+ if not token:
+  return True  # Only safe for the loopback-only private prototype.
+ import hmac
+ provided=handler.headers.get('Authorization','')
+ return hmac.compare_digest(provided,'Bearer '+token)
 HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVI Studio</title><style>body{font:16px system-ui;background:#10151e;color:#e9eef5;max-width:850px;margin:50px auto;padding:20px}button,input{padding:12px;border-radius:8px}button{background:#8cc5ff;border:0;cursor:pointer}pre{white-space:pre-wrap;background:#202b3a;padding:20px;border-radius:12px}small{color:#aab8c7}</style></head><body><h1>M3 Video Intelligence</h1><p>Paste a YouTube link, or upload a video. Processing runs locally.</p><input id="url" placeholder="https://www.youtube.com/watch?v=..." style="width:70%"><button onclick="submitUrl()">Analyze link</button><hr><input id="file" type="file" accept="video/mp4,video/quicktime"><button onclick="go()">Analyze</button><p id="status"></p><pre id="result">Awaiting video</pre><small>Prototype: no creative scoring yet. Local access only. Do not expose to the public internet.</small><script>async function submitUrl(){let u=document.getElementById("url").value;document.getElementById("status").textContent="Submitting…";try{let r=await fetch("/api/url",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});let d=await r.json();document.getElementById("result").textContent=JSON.stringify(d,null,2);if(!r.ok)return;let id=d.job_id;let poll=async()=>{let x=await fetch("/api/jobs/"+id);let j=await x.json();document.getElementById("result").textContent=JSON.stringify(j,null,2);document.getElementById("status").textContent=j.status;if(j.report_url){document.getElementById("status").innerHTML="Completed — <a style=\"color:#8cc5ff\" href=\""+j.report_url+"\" target=\"_blank\">Open editor report</a> · <a style=\"color:#8cc5ff\" href=\""+j.handoff_url+"\" target=\"_blank\">David handoff</a>";}if(j.status==="queued"||j.status==="retrieving"||j.status==="running"||j.status==="compiling_timeline"||j.status==="reviewing_frames")setTimeout(poll,2500)};poll()}catch(e){document.getElementById("status").textContent=e.message}} async function go(){let f=document.getElementById('file').files[0];if(!f)return;document.getElementById('status').textContent='Processing…';try{let r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});let data=await r.json();document.getElementById('result').textContent=JSON.stringify(data,null,2);document.getElementById('status').textContent=r.ok?'Analysis queued':'Error';if(r.ok)pollUpload(data.job_id);}catch(e){document.getElementById('status').textContent=e.message}} async function pollUpload(id){try{let r=await fetch('/api/jobs/'+id);let j=await r.json();document.getElementById('result').textContent=JSON.stringify(j,null,2);document.getElementById('status').textContent=j.status;if(j.report_url){document.getElementById('status').innerHTML='Completed — <a href="'+j.report_url+'">Open editor report</a> · <a href="'+j.handoff_url+'">David handoff</a>';}if(['queued','running','compiling_timeline','reviewing_frames'].includes(j.status))setTimeout(()=>pollUpload(id),2500)}catch(e){document.getElementById('status').textContent=e.message}}</script></body></html>'''
 JOBS={}
 def run_media_job(job,path,directory,meta):
@@ -50,6 +58,7 @@ class Handler(BaseHTTPRequestHandler):
  def respond(self,code,data,kind='application/json'):
   b=data.encode() if isinstance(data,str) else json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def do_GET(self):
+  if not authorized(self):return self.respond(401,{'error':'unauthorized'})
   if self.path=='/':return self.respond(200,HTML,'text/html; charset=utf-8')
   if self.path.startswith('/api/jobs/'):
    job=self.path.split('/')[-1]
@@ -76,6 +85,7 @@ class Handler(BaseHTTPRequestHandler):
   if self.path=='/health':return self.respond(200,{'status':'ok','version':'prototype'})
   self.respond(404,{'error':'not found'})
  def do_POST(self):
+  if not authorized(self):return self.respond(401,{'error':'unauthorized'})
   if self.path=='/api/url':
    try:
     size=int(self.headers.get('Content-Length','0'))
