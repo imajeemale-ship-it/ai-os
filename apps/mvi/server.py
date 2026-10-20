@@ -15,7 +15,7 @@ ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
 def authorized(handler):
  token=os.environ.get('MVI_API_TOKEN','')
  if not token:
-  return True  # Only safe for the loopback-only private prototype.
+  return os.environ.get('MVI_REQUIRE_AUTH') != '1'  # Private loopback only.
  import hmac
  provided=handler.headers.get('Authorization','')
  return hmac.compare_digest(provided,'Bearer '+token)
@@ -123,5 +123,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=='__main__':
  import argparse
  p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765);a=p.parse_args()
+ if os.environ.get('MVI_REQUIRE_AUTH')=='1' and not os.environ.get('MVI_API_TOKEN'):
+  raise SystemExit('MVI_REQUIRE_AUTH=1 requires MVI_API_TOKEN')
  print(f'MVI local prototype http://127.0.0.1:{a.port}',flush=True)
  ThreadingHTTPServer(('127.0.0.1',a.port),Handler).serve_forever()

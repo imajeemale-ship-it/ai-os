@@ -18,3 +18,5 @@ supply this header, so it is unsuitable for authenticated remote use.
 The token is a defense-in-depth prototype, not production authentication:
 there are no users, roles, rate limits, HTTPS termination, or secret rotation.
 Keep the API bound to loopback and do not publish the service publicly.
+
+Production-mode service template requires a private `/etc/mvi/api.env` containing `MVI_API_TOKEN`, readable only by the service administrator. Missing token now prevents API startup. The Linux unit templates set a 2 GiB memory cap, 150% CPU quota, and process/file limits. These limits have not been verified against representative video workloads.

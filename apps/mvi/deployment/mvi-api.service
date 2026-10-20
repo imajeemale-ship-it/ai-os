@@ -9,10 +9,16 @@ Group=mvi
 WorkingDirectory=/opt/ai-os/apps/mvi
 Environment=MVI_DATA_DIR=/var/lib/mvi
 Environment=MVI_DURABLE_QUEUE=1
+Environment=MVI_REQUIRE_AUTH=1
+EnvironmentFile=/etc/mvi/api.env
 Environment=MVI_ENABLE_LOCAL_VISION=0
 ExecStart=/opt/ai-os/apps/mvi/.venv/bin/python /opt/ai-os/apps/mvi/server.py --port 8765
 Restart=always
 RestartSec=5
+CPUQuota=150%
+MemoryMax=2G
+TasksMax=128
+LimitNOFILE=4096
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
