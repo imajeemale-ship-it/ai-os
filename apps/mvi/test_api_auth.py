@@ -15,7 +15,8 @@ class ApiAuthTests(unittest.TestCase):
      headers={} if auth is None else {'Authorization':auth}
      conn.request(method,path,headers=headers)
      res=conn.getresponse();code=res.status;res.read();conn.close();return code
-    for path in ('/','/api/jobs/'+'a'*32,'/api/reports/'+'a'*32+'/editor'):
+    self.assertEqual(request('GET','/'),200)
+    for path in ('/api/jobs/'+'a'*32,'/api/reports/'+'a'*32+'/editor'):
      self.assertEqual(request('GET',path),401)
      self.assertEqual(request('GET',path,'Bearer wrong'),401)
     self.assertEqual(request('GET','/health'),200)

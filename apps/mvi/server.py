@@ -81,8 +81,9 @@ class Handler(BaseHTTPRequestHandler):
   b=data.encode() if isinstance(data,str) else json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def do_GET(self):
   if self.path=='/health':return self.respond(200,{'status':'ok','version':'prototype'})
-  if not authorized(self):return self.respond(401,{'error':'unauthorized'})
+  # The shell is public so it can collect a token in-browser; every API route remains protected.
   if self.path=='/':return self.respond(200,HTML,'text/html; charset=utf-8')
+  if not authorized(self):return self.respond(401,{'error':'unauthorized'})
   if self.path.startswith('/api/jobs/'):
    job=self.path.split('/')[-1]
    if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):return self.respond(400,{'error':'invalid job'})
