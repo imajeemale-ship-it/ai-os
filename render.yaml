@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: mvi-private-pilot
+    runtime: docker
+    rootDir: apps/mvi
+    region: virginia
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: yes
+    disk:
+      name: mvi-data
+      mountPath: /var/lib/mvi
+      sizeGB: 20
+    envVars:
+      - key: MVI_BIND_HOST
+        value: 0.0.0.0
+      - key: MVI_DATA_DIR
+        value: /var/lib/mvi
+      - key: MVI_DURABLE_QUEUE
+        value: "1"
+      - key: MVI_REQUIRE_AUTH
+        value: "1"
+      - key: MVI_API_TOKEN
+        sync: false
+      - key: PORT
+        value: "10000"

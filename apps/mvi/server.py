@@ -80,6 +80,7 @@ class Handler(BaseHTTPRequestHandler):
  def respond(self,code,data,kind='application/json'):
   b=data.encode() if isinstance(data,str) else json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def do_GET(self):
+  if self.path=='/health':return self.respond(200,{'status':'ok','version':'prototype'})
   if not authorized(self):return self.respond(401,{'error':'unauthorized'})
   if self.path=='/':return self.respond(200,HTML,'text/html; charset=utf-8')
   if self.path.startswith('/api/jobs/'):
@@ -104,7 +105,6 @@ class Handler(BaseHTTPRequestHandler):
    else:path=ROOT/job/names[kind]
    if not path.is_file():return self.respond(404,{'error':'report not ready'})
    return self.respond(200,path.read_text(),'application/json' if kind=='timeline' else 'text/markdown; charset=utf-8')
-  if self.path=='/health':return self.respond(200,{'status':'ok','version':'prototype'})
   self.respond(404,{'error':'not found'})
  def do_POST(self):
   if not authorized(self):return self.respond(401,{'error':'unauthorized'})
@@ -147,5 +147,6 @@ if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765);a=p.parse_args()
  if os.environ.get('MVI_REQUIRE_AUTH')=='1' and not os.environ.get('MVI_API_TOKEN'):
   raise SystemExit('MVI_REQUIRE_AUTH=1 requires MVI_API_TOKEN')
- print(f'MVI local prototype http://127.0.0.1:{a.port}',flush=True)
- ThreadingHTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
+ host=os.environ.get('MVI_BIND_HOST','127.0.0.1');port=int(os.environ.get('PORT',a.port))
+ print(f'MVI service http://{host}:{port}',flush=True)
+ ThreadingHTTPServer((host,port),Handler).serve_forever()
