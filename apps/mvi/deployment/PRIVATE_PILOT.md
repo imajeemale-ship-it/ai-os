@@ -13,8 +13,7 @@ The worker does not require the user's Mac to stay awake once actually deployed.
 ## Optional API bearer token
 Set `MVI_API_TOKEN` in the API service environment through a private credential
 mechanism (never commit a token). When set, all API and dashboard requests
-require `Authorization: Bearer <token>`. The bundled HTML dashboard does not yet
-supply this header, so it is unsuitable for authenticated remote use.
+require `Authorization: Bearer <token>`. The bundled HTML dashboard accepts the token in the browser session and supplies this header for API calls and report downloads.
 The token is a defense-in-depth prototype, not production authentication:
 there are no users, roles, rate limits, HTTPS termination, or secret rotation.
 Keep the API bound to loopback and do not publish the service publicly.
