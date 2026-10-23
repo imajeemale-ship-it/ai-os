@@ -33,7 +33,7 @@ HTML='''<!doctype html>
 <script>
 const tokenInput=document.getElementById("token"),result=document.getElementById("result"),status=document.getElementById("status"),downloads=document.getElementById("downloads");
 tokenInput.value=sessionStorage.getItem("mvi_token")||"";
-function saveToken(){const t=tokenInput.value.trim();if(t)sessionStorage.setItem("mvi_token",t);else sessionStorage.removeItem("mvi_token");status.textContent=t?"Token saved for this session":"Token cleared";}
+async function saveToken(){const t=tokenInput.value.trim();if(!t){sessionStorage.removeItem("mvi_token");status.textContent="Token cleared";return}sessionStorage.setItem("mvi_token",t);status.textContent="Checking token…";const check=await fetch("/api/jobs/00000000000000000000000000000000",{headers:{Authorization:"Bearer "+t}});if(check.status===404)status.textContent="Token verified and saved for this session";else{sessionStorage.removeItem("mvi_token");status.textContent="Token rejected — check Render MVI_API_TOKEN"}}
 function headers(extra={}){const t=sessionStorage.getItem("mvi_token")||tokenInput.value.trim();return t?{...extra,Authorization:"Bearer "+t}:extra}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:headers(options.headers||{})});let d;try{d=await r.json()}catch{d={error:await r.text()}};return {r,d}}
 function showJob(j){result.textContent=JSON.stringify(j,null,2);status.textContent=j.status;downloads.innerHTML="";if(j.report_url){for(const [label,kind] of [["Open editor report","editor"],["Download David handoff","handoff"],["Download timeline","timeline"]]){const b=document.createElement("button");b.textContent=label;b.onclick=()=>downloadReport(j.job_id,kind,label);downloads.append(" ",b)}}}
