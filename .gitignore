@@ -7,5 +7,3 @@ __pycache__/
 .DS_Store
 *.egg-info/
 
-# Third-party repositories under evaluation (not vendored)
-apps/mvi/vendor-evaluation/
