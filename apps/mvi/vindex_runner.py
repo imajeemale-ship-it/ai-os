@@ -10,7 +10,9 @@ def compile_video_evidence(video,output,timeout=600):
  env=os.environ.copy();env['PYTHONPATH']=str(VENDOR)+os.pathsep+env.get('PYTHONPATH','')
  code='from pathlib import Path;from vindex.compiler.pipeline import compile_video;import sys;compile_video(Path(sys.argv[1]),Path(sys.argv[2]),{"stages":["scene","frame"],"sampling_strategy":"middle","use_cache":True})'
  p=subprocess.run([str(PYTHON if PYTHON.exists() else sys.executable),'-c',code,str(Path(video).resolve()),str(output.resolve())],capture_output=True,text=True,timeout=timeout,env=env)
- if p.returncode:raise RuntimeError('Vindex compilation failed: '+p.stderr[-700:])
+ if p.returncode:
+  detail=p.stderr[-3000:] or p.stdout[-3000:] or 'no compiler diagnostics'
+  raise RuntimeError(f'Vindex compilation failed (exit {p.returncode}): {detail}')
  artifact=output/'visual_memory.json'
  if not artifact.exists():raise RuntimeError('Vindex did not produce visual_memory.json')
  result=load_artifact(artifact)
