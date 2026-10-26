@@ -2,6 +2,7 @@
 import json
 import math
 from pathlib import Path
+from editorial_coach import coach
 
 def valid_interval(start, end, duration, min_seconds=0):
  """Accept only finite, positive, in-range measured intervals as verified evidence."""
@@ -81,7 +82,7 @@ def build_report(metadata,technical,timeline=None,visual_review=None,audio_signa
                'observation':item['observation'],'recommendation':item['editor_question'],
                'evidence_source':'human_inspected_sampled_frame','verified':True})
  rows.sort(key=lambda x:x['start_seconds'])
- return {'title':title,'duration_seconds':duration,'creative_score':None,'status':'evidence_review_pending','summary':f'{len(shots)} scene/shot intervals detected; semantic editing quality not yet established.','timeline':rows,'priority_checks':priority_audio_checks(audio_signal,duration),'cross_modal_checks':cross_modal_checks(timeline,audio_signal,duration),'editor_checks':[{'section':'Opening','time_range':'00:00–00:15','question':'Are the GTA stakes or payoff clear in the opening?'},{'section':'Visual focus','time_range':'Throughout','question':'Do overlays and effects compete with gameplay?'},{'section':'Narrative','time_range':'Throughout','question':'Can a new viewer follow Rico’s goal, setback and payoff?'},{'section':'Sound','time_range':'Throughout','question':'Is dialogue intelligible above music and game audio?'},{'section':'Ending','time_range':f'{timestamp(max(0,duration-15))}–{timestamp(duration)}','question':'Does the ending deliver on the opening promise?'}],'limitations':['Scene boundaries are not proof of good or bad pacing.','No retention or CTR analytics available.','Audio quality, humor and narrative cannot be scored from scene detection alone.']}
+ return {'title':title,'duration_seconds':duration,'creative_score':None,'status':'evidence_review_pending','summary':f'{len(shots)} scene/shot intervals detected; semantic editing quality not yet established.','timeline':rows,'priority_checks':priority_audio_checks(audio_signal,duration),'cross_modal_checks':cross_modal_checks(timeline,audio_signal,duration),'editorial_coaching':coach(metadata,technical),'editor_checks':[{'section':'Opening','time_range':'00:00–00:15','question':'Are the GTA stakes or payoff clear in the opening?'},{'section':'Visual focus','time_range':'Throughout','question':'Do overlays and effects compete with gameplay?'},{'section':'Narrative','time_range':'Throughout','question':'Can a new viewer follow Rico’s goal, setback and payoff?'},{'section':'Sound','time_range':'Throughout','question':'Is dialogue intelligible above music and game audio?'},{'section':'Ending','time_range':f'{timestamp(max(0,duration-15))}–{timestamp(duration)}','question':'Does the ending deliver on the opening promise?'}],'limitations':['Scene boundaries are not proof of good or bad pacing.','No retention or CTR analytics available.','Audio quality, humor and narrative cannot be scored from scene detection alone.']}
 
 def render_markdown(report):
  out=[f'# MVI Editor Report — {report["title"]}','',f'**Duration:** {timestamp(report["duration_seconds"])} | **Status:** Evidence review pending | **Creative score:** Not assigned','',report['summary'],'','## Timeline for David']
@@ -96,6 +97,18 @@ def render_markdown(report):
   out+=['','## Prioritized evidence checks (not editing defects)']
   for item in report['priority_checks']:
    out.append(f'- **{precise_timestamp(item["start_seconds"])}–{precise_timestamp(item["end_seconds"])}:** {item["reason"]}. **Next:** {item["action"]}')
+ guidance=report.get('editorial_coaching')
+ if guidance:
+  out+=['','## Editorial coaching — expectation-first (questions, not detected defects)']
+  out+=['','**Based on:** Jake Trinder, Give Me 15 Minutes and I’ll Make You Disgustingly Good at YouTube (https://www.youtube.com/watch?v=Dx-c19qXdxM).']
+  if guidance['missing_context']:
+   out+=['','**Provide before judging creative quality:**']+['- '+item for item in guidance['missing_context']]
+  out+=['','### Highest-priority review points']
+  for item in guidance['prioritized_review']:
+   out.append(f'- **{item["time_range"]}**: {item["question"]} **Potential edit if needed:** {item["possible_edit"]} _(Requires footage review; not a confirmed problem.)_')
+  out+=['','### Video acceptance criteria']+['- '+item for item in guidance['acceptance_criteria']]
+  out+=['','### Do not overinterpret']
+  out+=['- '+guidance['style_warning'],'- '+guidance['research_warning'],'- '+guidance['analytics_warning']]
  out+=['','## Editing checklist']
  for item in report['editor_checks']:out.append(f'- **{item["section"]} ({item["time_range"]}):** {item["question"]}')
  if report.get('review_stages'):
