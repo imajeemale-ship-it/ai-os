@@ -56,7 +56,7 @@ def run_media_job(job,path,directory,meta):
    vindex_status="completed"
   except Exception as exc:
    timeline=None
-   vindex_status="unavailable: "+str(exc)[:250]
+   vindex_status="unavailable: "+str(exc)[:3000]
   (directory/"DAVID_EDITOR_HANDOFF.md").write_text(build_brief(meta.get('title','M3 video'),timeline))
   JOBS[job]["status"]="reviewing_frames"
   save_job(directory,JOBS[job])
