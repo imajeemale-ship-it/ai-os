@@ -567,6 +567,17 @@ class RobinhoodMCPDataAdapter:
         sma20 = sum(closes[-20:]) / 20
         sma50 = sum(closes[-50:]) / 50
         prior_high20 = max(highs[-20:])
+        prior_low20 = min(closes[-20:])
+        swing_range = prior_high20 - prior_low20
+        fib_levels = {
+            "23.6": round(prior_high20 - swing_range * 0.236, 4),
+            "38.2": round(prior_high20 - swing_range * 0.382, 4),
+            "50.0": round(prior_high20 - swing_range * 0.500, 4),
+            "61.8": round(prior_high20 - swing_range * 0.618, 4),
+            "78.6": round(prior_high20 - swing_range * 0.786, 4),
+        }
+        nearest_fib = min(fib_levels.items(), key=lambda item: abs(current_price - item[1]))
+        fib_confluence = abs(current_price - nearest_fib[1]) / current_price <= 0.015
         breakout = current_price >= prior_high20 * 1.001
         established_uptrend = sma20 > sma50 and closes[-1] > sma50
         pullback = established_uptrend and sma20 * 0.98 <= current_price <= sma20 * 1.02
@@ -574,6 +585,11 @@ class RobinhoodMCPDataAdapter:
             "sma20": round(sma20, 4),
             "sma50": round(sma50, 4),
             "prior_high20": round(prior_high20, 4),
+            "prior_low20": round(prior_low20, 4),
+            "fib_levels": fib_levels,
+            "nearest_fib_level": nearest_fib[0],
+            "nearest_fib_price": nearest_fib[1],
+            "fib_confluence": fib_confluence,
             "breakout_continuation": breakout,
             "established_uptrend": established_uptrend,
             "pullback_continuation": pullback,
