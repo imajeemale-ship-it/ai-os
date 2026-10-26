@@ -1073,6 +1073,8 @@ def render_cycle_report(record: dict[str, Any]) -> str:
         lines.extend([
             f"20/50-day averages: {context['sma20']:.2f} / {context['sma50']:.2f}",
             f"Prior 20-day high: {context['prior_high20']:.2f}",
+            f"Nearest Fibonacci retracement: {context.get('nearest_fib_level', 'n/a')}% at " + "$" + f"{context.get('nearest_fib_price', 0):.2f}",
+            f"Fibonacci confluence: {'yes' if context.get('fib_confluence') else 'no'} (experimental evidence only)",
         ])
     if record.get("due_diligence"):
         diligence = record["due_diligence"]
