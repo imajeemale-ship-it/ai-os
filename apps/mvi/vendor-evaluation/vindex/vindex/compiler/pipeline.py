@@ -30,14 +30,34 @@ from vindex.core.schemas.observations import (
     OCRObservation,
     ShotObservation,
 )
-from vindex.extractors.asr.asr_extractor import ASRExtractor
 from vindex.extractors.frame_extraction.pyav_extractor import PyAVFrameExtractor
-from vindex.extractors.motion.motion_extractor import MotionExtractor
-from vindex.extractors.objects.object_extractor import ObjectExtractor
-from vindex.extractors.ocr.ocr_extractor import OCRExtractor
 from vindex.extractors.scene_detection.pyscenedetect import PySceneDetectExtractor
-from vindex.extractors.vlm_caption.vlm_captioner import VLMCaptioner
-from vindex.narration.narrator import Narrator
+
+# Optional stages must not prevent lightweight scene/frame compilation from importing.
+try:
+    from vindex.extractors.asr.asr_extractor import ASRExtractor
+except ImportError:
+    ASRExtractor = None
+try:
+    from vindex.extractors.motion.motion_extractor import MotionExtractor
+except ImportError:
+    MotionExtractor = None
+try:
+    from vindex.extractors.objects.object_extractor import ObjectExtractor
+except ImportError:
+    ObjectExtractor = None
+try:
+    from vindex.extractors.ocr.ocr_extractor import OCRExtractor
+except ImportError:
+    OCRExtractor = None
+try:
+    from vindex.extractors.vlm_caption.vlm_captioner import VLMCaptioner
+except ImportError:
+    VLMCaptioner = None
+try:
+    from vindex.narration.narrator import Narrator
+except ImportError:
+    Narrator = None
 
 
 def compile_video(video_path: Path, output_dir: Path, config: dict[str, Any]) -> VisualMemory:
