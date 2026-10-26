@@ -109,6 +109,11 @@ def render_markdown(report):
   out+=['','### Video acceptance criteria']+['- '+item for item in guidance['acceptance_criteria']]
   out+=['','### Do not overinterpret']
   out+=['- '+guidance['style_warning'],'- '+guidance['research_warning'],'- '+guidance['analytics_warning']]
+ if report.get('learned_principles'):
+  out+=['','## Approved knowledge sources (evaluate relevance; not detected defects)']
+  for item in report['learned_principles']:
+   source=item.get('source',{})
+   out.append('- **'+str(source.get('title') or 'Learning source')+'**: '+str(item['excerpt'])+' — '+item['application'])
  out+=['','## Editing checklist']
  for item in report['editor_checks']:out.append(f'- **{item["section"]} ({item["time_range"]}):** {item["question"]}')
  if report.get('review_stages'):

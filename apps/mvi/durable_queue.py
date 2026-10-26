@@ -48,7 +48,7 @@ class DurableQueue:
             db.close()
 
     def enqueue(self, job_id, kind, payload, max_attempts=3, now=None):
-        if not (isinstance(job_id, str) and job_id and kind in {"upload", "url"}
+        if not (isinstance(job_id, str) and job_id and kind in {"upload", "url", "learn_url", "learn_upload"}
                 and isinstance(payload, dict) and isinstance(max_attempts, int)
                 and not isinstance(max_attempts, bool) and 1 <= max_attempts <= 10):
             raise ValueError("Invalid queue job")

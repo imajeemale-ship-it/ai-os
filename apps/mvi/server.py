@@ -3,6 +3,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, quote
 import json, os, tempfile, uuid, threading
+from urllib.parse import unquote
 from url_jobs import retrieve
 from engine import inspect
 from editor_handoff import build_brief
@@ -10,6 +11,7 @@ from review_pipeline import review
 from job_state import save as save_job, load as load_job
 import durable_runtime as durable
 from vindex_runner import compile_video_evidence
+import learning_brain as learning
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
 
 def authorized(handler):
@@ -19,29 +21,13 @@ def authorized(handler):
  import hmac
  provided=handler.headers.get('Authorization','')
  return hmac.compare_digest(provided,'Bearer '+token)
-HTML='''<!doctype html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVI Studio</title>
-<style>body{font:16px system-ui;background:#10151e;color:#e9eef5;max-width:850px;margin:50px auto;padding:20px}button,input{padding:12px;border-radius:8px}button{background:#8cc5ff;border:0;cursor:pointer}pre{white-space:pre-wrap;background:#202b3a;padding:20px;border-radius:12px}small{color:#aab8c7}a{color:#8cc5ff}</style></head>
-<body><h1>M3 Video Intelligence</h1>
-<p>Private pilot. Enter the pilot token, then upload a video or analyze a YouTube link.</p>
-<input id="token" type="password" placeholder="MVI pilot token" autocomplete="off" style="width:70%">
-<button onclick="saveToken()">Save token</button>
-<hr><input id="url" placeholder="https://www.youtube.com/watch?v=..." style="width:70%"><button onclick="submitUrl()">Analyze link</button>
-<hr><input id="file" type="file" accept="video/mp4,video/quicktime"><button onclick="go()">Analyze upload</button>
-<p id="status"></p><pre id="result">Awaiting video</pre><div id="downloads"></div>
-<small>Token stays in this browser session and is never displayed in results.</small>
-<script>
-const tokenInput=document.getElementById("token"),result=document.getElementById("result"),status=document.getElementById("status"),downloads=document.getElementById("downloads");
-tokenInput.value=sessionStorage.getItem("mvi_token")||"";
-async function saveToken(){const t=tokenInput.value.trim();if(!t){sessionStorage.removeItem("mvi_token");status.textContent="Token cleared";return}sessionStorage.setItem("mvi_token",t);status.textContent="Checking token…";const check=await fetch("/api/jobs/00000000000000000000000000000000",{headers:{Authorization:"Bearer "+t}});if(check.status===404)status.textContent="Token verified and saved for this session";else{sessionStorage.removeItem("mvi_token");status.textContent="Token rejected — check Render MVI_API_TOKEN"}}
-function headers(extra={}){const t=sessionStorage.getItem("mvi_token")||tokenInput.value.trim();return t?{...extra,Authorization:"Bearer "+t}:extra}
-async function api(url,options={}){const r=await fetch(url,{...options,headers:headers(options.headers||{})});let d;try{d=await r.json()}catch{d={error:await r.text()}};return {r,d}}
-function showJob(j){result.textContent=JSON.stringify(j,null,2);status.textContent=j.status;downloads.innerHTML="";if(j.report_url){for(const [label,kind] of [["Open editor report","editor"],["Download David handoff","handoff"],["Download timeline","timeline"]]){const b=document.createElement("button");b.textContent=label;b.onclick=()=>downloadReport(j.job_id,kind,label);downloads.append(" ",b)}}}
-async function downloadReport(id,kind,label){const r=await fetch("/api/reports/"+id+"/"+kind,{headers:headers()});if(!r.ok){status.textContent="Report download failed ("+r.status+")";return}const blob=await r.blob(),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=id+"-"+kind+(kind==="timeline"?".json":".md");a.click();URL.revokeObjectURL(a.href);status.textContent=label+" ready"}
-async function poll(id){try{const x=await api("/api/jobs/"+id),j=x.d;showJob(j);if(j.status==="retrieving"||["queued","running","compiling_timeline","reviewing_frames"].includes(j.status))setTimeout(()=>poll(id),2500)}catch(e){status.textContent=e.message}}
-async function submitUrl(){const u=document.getElementById("url").value.trim();status.textContent="Submitting…";const x=await api("/api/url",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});showJob(x.d);if(x.r.ok)poll(x.d.job_id)}
-async function go(){const f=document.getElementById("file").files[0];if(!f){status.textContent="Choose an MP4 or MOV first";return}status.textContent="Uploading…";const x=await api("/api/upload",{method:"POST",headers:{"Content-Type":f.type||"application/octet-stream","X-Filename":encodeURIComponent(f.name)},body:f});showJob(x.d);if(x.r.ok)poll(x.d.job_id)}
-</script></body></html>'''
+HTML=Path(__file__).with_name('brain_studio.html').read_text(encoding='utf-8')
+def editorial_context(raw):
+ if not isinstance(raw,dict):return {}
+ return {key: value.strip()[:240] for key in
+         ('audience','viewer_promise','viewer_outcome','intended_style')
+         if isinstance((value:=raw.get(key)),str) and value.strip()}
+
 JOBS={}
 def run_media_job(job,path,directory,meta):
  """Produce identical reports for uploaded videos and retrieved links."""
@@ -66,11 +52,12 @@ def run_media_job(job,path,directory,meta):
   JOBS[job].update({"status":"failed","error":str(exc)[:500]})
  save_job(directory,JOBS[job])
 
-def run_url_job(job,url,directory):
+def run_url_job(job,url,directory,context=None):
  try:
   JOBS[job]["status"]="retrieving"
   save_job(directory,JOBS[job])
   meta,path=retrieve(url,directory)
+  if context:meta['editorial_context']=context
  except Exception as exc:
   JOBS[job].update({"status":"failed","error":str(exc)[:500]})
   save_job(directory,JOBS[job])
@@ -84,6 +71,12 @@ class Handler(BaseHTTPRequestHandler):
   # The shell is public so it can collect a token in-browser; every API route remains protected.
   if self.path=='/':return self.respond(200,HTML,'text/html; charset=utf-8')
   if not authorized(self):return self.respond(401,{'error':'unauthorized'})
+  if self.path.startswith('/api/learn/jobs/'):
+   job=self.path.split('/')[-1]
+   if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):
+    return self.respond(400,{'error':'invalid job'})
+   state=learning.learning_state(ROOT,job)
+   return self.respond(200,state) if state is not None else self.respond(404,{'error':'learning job not found'})
   if self.path.startswith('/api/jobs/'):
    job=self.path.split('/')[-1]
    if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):return self.respond(400,{'error':'invalid job'})
@@ -109,18 +102,73 @@ class Handler(BaseHTTPRequestHandler):
   self.respond(404,{'error':'not found'})
  def do_POST(self):
   if not authorized(self):return self.respond(401,{'error':'unauthorized'})
+  if self.path=='/api/learn/url':
+   try:
+    size=int(self.headers.get('Content-Length','0'))
+    if not 0<size<=4096:return self.respond(400,{'error':'invalid request size'})
+    data=json.loads(self.rfile.read(size))
+    from link_intake import video_id
+    url=data['url']
+    ident=video_id(url)
+    canonical='https://www.youtube.com/watch?v='+ident
+    job=uuid.uuid4().hex;folder=ROOT/job
+    folder.mkdir(mode=0o700,parents=True,exist_ok=False)
+    durable.enqueue(ROOT,job,'learn_url',{'url':canonical,'title':str(data.get('title') or '')[:240]})
+    if not durable.enabled():
+     threading.Thread(target=durable.work_once,args=(ROOT,),daemon=True).start()
+    return self.respond(202,{'job_id':job,'status':'queued','hemisphere':'learning'})
+   except Exception as exc:return self.respond(400,{'error':str(exc)[:240]})
+  if self.path=='/api/learn/upload':
+   try:
+    size=int(self.headers.get('Content-Length','0'))
+    title=unquote(self.headers.get('X-Filename',''))
+    suffix=Path(title).suffix.lower()
+    if suffix not in learning.ALLOWED_UPLOADS:
+     return self.respond(400,{'error':'Upload MP4, MOV, TXT, MD, SRT, or VTT'})
+    limit=learning.MAX_VIDEO_BYTES if suffix in ('.mp4','.mov') else learning.MAX_TEXT_BYTES
+    if not 0<size<=limit:return self.respond(400,{'error':'Learning file exceeds size limit'})
+    job=uuid.uuid4().hex;folder=ROOT/job
+    folder.mkdir(mode=0o700,parents=True,exist_ok=False)
+    filename='learning'+suffix;source=folder/filename
+    with source.open('xb') as out:
+     os.chmod(source,0o600)
+     left=size
+     while left:
+      block=self.rfile.read(min(left,1024*1024))
+      if not block:raise ValueError('Incomplete upload')
+      out.write(block);left-=len(block)
+    durable.enqueue(ROOT,job,'learn_upload',{'filename':filename,'title':Path(title).name[:240]})
+    if not durable.enabled():
+     threading.Thread(target=durable.work_once,args=(ROOT,),daemon=True).start()
+    return self.respond(202,{'job_id':job,'status':'queued','hemisphere':'learning'})
+   except Exception as exc:return self.respond(400,{'error':str(exc)[:240]})
+  if self.path=='/api/learn/decide':
+   try:
+    size=int(self.headers.get('Content-Length','0'))
+    if not 0<size<=2048:return self.respond(400,{'error':'invalid request size'})
+    data=json.loads(self.rfile.read(size))
+    job=data['job_id'];card=data['card_id']
+    if not (isinstance(job,str) and len(job)==32 and
+            all(c in '0123456789abcdef' for c in job) and
+            isinstance(card,str) and len(card)==16 and
+            all(c in '0123456789abcdef' for c in card)):
+     return self.respond(400,{'error':'invalid learning card'})
+    return self.respond(200,learning.decide(ROOT,job,card,data['decision']))
+   except (ValueError,KeyError,TypeError) as exc:
+    return self.respond(400,{'error':str(exc)[:240]})
   if self.path=='/api/url':
    try:
     size=int(self.headers.get('Content-Length','0'))
     if not 0<size<=4096:return self.respond(400,{'error':'invalid request size'})
     data=json.loads(self.rfile.read(size));url=data['url']
+    context=editorial_context(data.get('editorial_context'))
     from link_intake import video_id
     video_id(url)
     job=uuid.uuid4().hex;directory=ROOT/job;directory.mkdir(mode=0o700,parents=True,exist_ok=False)
     JOBS[job]={'job_id':job,'status':'queued','url':url,'creative_score':None}
     save_job(directory,JOBS[job])
-    if durable.enabled():durable.enqueue(ROOT,job,'url',{'url':url})
-    else:threading.Thread(target=run_url_job,args=(job,url,directory),daemon=True).start()
+    if durable.enabled():durable.enqueue(ROOT,job,'url',{'url':url,'editorial_context':context})
+    else:threading.Thread(target=run_url_job,args=(job,url,directory,context),daemon=True).start()
     return self.respond(202,JOBS[job])
    except Exception as exc:return self.respond(400,{'error':str(exc)[:250]})
   if self.path!='/api/upload':return self.respond(404,{'error':'not found'})
@@ -128,6 +176,8 @@ class Handler(BaseHTTPRequestHandler):
    length=int(self.headers.get('Content-Length','0'))
    name=__import__('urllib.parse',fromlist=['unquote']).unquote(self.headers.get('X-Filename',''))
    ext=Path(name).suffix.lower()
+   try:context=editorial_context(json.loads(unquote(self.headers.get('X-MVI-Context','{}'))))
+   except (ValueError,TypeError):return self.respond(400,{'error':'invalid editorial context'})
    if ext not in ('.mp4','.mov') or not 0<length<=500*1024*1024:return self.respond(400,{'error':'MP4/MOV required; 500MB maximum'})
    job=uuid.uuid4().hex;directory=ROOT/job;directory.mkdir(mode=0o700,parents=True,exist_ok=False)
    video=directory/('upload'+ext)
@@ -139,8 +189,8 @@ class Handler(BaseHTTPRequestHandler):
      out.write(chunk);remaining-=len(chunk)
    JOBS[job]={'job_id':job,'status':'queued','title':name[:200],'creative_score':None}
    save_job(directory,JOBS[job])
-   if durable.enabled():durable.enqueue(ROOT,job,'upload',{'filename':video.name,'title':name[:200]})
-   else:threading.Thread(target=run_media_job,args=(job,video,directory,{'title':name[:200]}),daemon=True).start()
+   if durable.enabled():durable.enqueue(ROOT,job,'upload',{'filename':video.name,'title':name[:200],'editorial_context':context})
+   else:threading.Thread(target=run_media_job,args=(job,video,directory,{'title':name[:200],'editorial_context':context}),daemon=True).start()
    self.respond(202,JOBS[job])
   except Exception as exc:self.respond(400,{'error':str(exc)[:250]})
 if __name__=='__main__':

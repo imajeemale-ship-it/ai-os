@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#090d19">
+<title>MVI — The Brain</title>
+<style>
+:root{color-scheme:dark;--bg:#070c16;--panel:#121b2b;--surface:#172236;--line:rgba(203,222,253,.13);--muted:#99a6c0;--text:#f1f6ff;--left:#74def0;--right:#c3a0ff;--green:#7debbe}
+*{box-sizing:border-box}
+html{min-width:320px;scroll-behavior:smooth}
+body{margin:0;background:radial-gradient(ellipse at 50% 4%,rgba(62,75,145,.24),transparent 38%),linear-gradient(155deg,#0a1120,#070b14 68%);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+body:before{content:"";position:fixed;inset:0;z-index:-1;background-image:linear-gradient(rgba(149,170,210,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(149,170,210,.028) 1px,transparent 1px);background-size:32px 32px;mask-image:linear-gradient(to bottom,#000,transparent 75%);pointer-events:none}
+a{color:var(--left)}
+button,input,textarea{font:inherit}
+button{cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:2px solid #f3c9ff;outline-offset:3px}
+.shell{width:min(1220px,calc(100% - 48px));margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;padding:29px 0 14px;gap:20px}
+.brand{display:flex;align-items:center;gap:13px}
+.mark{width:46px;height:46px;border:1px solid #5c719e;background:linear-gradient(145deg,#1f3049,#111929);border-radius:13px;display:grid;place-items:center;color:white;box-shadow:0 0 20px rgba(122,170,238,.1);font-weight:850;letter-spacing:-.1em;font-size:20px}
+.brandname{font-size:15px;letter-spacing:.23em;font-weight:850;line-height:1.1}
+.branddesc{color:#91a0bd;letter-spacing:.18em;font-size:9px;text-transform:uppercase;margin-top:5px}
+.pill{display:flex;gap:9px;align-items:center;border:1px solid var(--line);background:rgba(17,24,41,.7);border-radius:99px;padding:9px 13px;font-size:11px;letter-spacing:.13em;color:#ccd8ef;text-transform:uppercase}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
+.hero{text-align:center;margin:16px auto 0}
+.kicker{letter-spacing:.28em;text-transform:uppercase;color:#abbcf0;font-size:10px;font-weight:760}
+h1{margin:8px 0 5px;font-size:clamp(32px,4.6vw,56px);line-height:1.05;font-weight:740;letter-spacing:-.055em}
+h1 span{background:linear-gradient(95deg,var(--left),#d8b7ff);color:transparent;background-clip:text}
+.subtitle{color:var(--muted);font-size:14px;max-width:640px;margin:12px auto 0}
+.brainview{height:295px;position:relative;max-width:670px;margin:9px auto -4px;user-select:none}
+.brainview svg{width:100%;height:100%;filter:drop-shadow(0 0 25px rgba(115,120,234,.11))}
+.brainview .brain-side{transition:filter .18s,opacity .18s}
+.brainview:has(.brain-side:hover) .brain-side:not(:hover){opacity:.58}
+.brainview .brain-side:hover{filter:brightness(1.3)}
+.legend{position:absolute;top:53%;display:flex;gap:8px;align-items:center;color:#c0dcf0;font-weight:720;letter-spacing:.1em;font-size:10px;text-transform:uppercase;pointer-events:none}
+.legend.left{left:0}.legend.right{right:0;color:#ddccff}
+.legend .stripe{height:1px;width:30px;background:currentColor;opacity:.7}
+.brain-links{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:22px;height:35px;max-width:800px;margin:-22px auto 0;pointer-events:none}
+.brain-links:before,.brain-links:after{content:"";width:1px;height:46px;opacity:.55;justify-self:center;background:linear-gradient(to bottom,rgba(116,222,240,.75),transparent)}
+.brain-links:after{background:linear-gradient(to bottom,rgba(195,160,255,.75),transparent)}
+.hemispheres{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;margin:0 0 30px}
+.panel{min-width:0;background:linear-gradient(150deg,rgba(26,38,58,.97),rgba(12,20,35,.97));border:1px solid var(--line);border-radius:20px;box-shadow:0 18px 42px rgba(0,0,0,.15),inset 0 1px rgba(255,255,255,.04);overflow:hidden;position:relative}
+.panel:before{content:"";position:absolute;inset:0 0 auto;height:3px;background:var(--accent)}
+.panel-left{--accent:var(--left);--accentdim:rgba(116,222,240,.09)}
+.panel-right{--accent:var(--right);--accentdim:rgba(195,160,255,.1)}
+.panel-inner{padding:26px 27px 28px}
+.panel-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.eyebrow{font-size:10px;font-weight:850;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
+.iconchip{width:41px;height:41px;border:1px solid var(--accent);border-radius:12px;display:grid;place-items:center;background:var(--accentdim);color:var(--accent)}
+h2{font-size:25px;letter-spacing:-.04em;margin:7px 0 4px}
+.panel-description{color:var(--muted);font-size:13px;min-height:41px;margin:0 0 23px}
+label{display:block;color:#bac9e0;letter-spacing:.06em;text-transform:uppercase;font-size:10px;font-weight:750;margin-bottom:9px}
+input[type=url],input[type=password],input[type=text]{width:100%;min-width:0;background:#0c1423;color:var(--text);padding:13px 13px;border:1px solid #33425a;border-radius:10px;outline:none;font-size:13px}
+input::placeholder{color:#76859f}
+input:focus{border-color:var(--accent,var(--left));box-shadow:0 0 0 3px var(--accentdim,rgba(116,222,240,.08))}
+.actionline{display:flex;gap:9px;align-items:stretch}
+.actionline input{flex:1}
+.primary{border:none;background:var(--accent);color:#07101b;font-weight:800;border-radius:10px;padding:11px 15px;font-size:12px;white-space:nowrap;transition:filter .15s}
+.primary:hover{filter:brightness(1.13)}
+.divider{position:relative;text-align:center;margin:19px 0;color:#6f7d97;font-size:10px;letter-spacing:.18em}
+.divider:before{content:"";position:absolute;top:50%;left:0;right:0;border-top:1px solid var(--line)}
+.divider span{position:relative;background:#141e2f;padding:0 16px}
+.drop{border:1.5px dashed #43546e;border-radius:14px;text-align:center;padding:21px 16px;background:linear-gradient(140deg,var(--accentdim),rgba(7,13,25,.35));transition:background .2s,border-color .2s;cursor:pointer;min-height:150px}
+.drop:hover,.drop.dragging{border-color:var(--accent);background:var(--accentdim)}
+.drop:focus-visible{outline:2px solid var(--accent)}
+.drop svg{display:block;margin:0 auto 7px;color:var(--accent)}
+.drop strong{display:block;font-size:14px}
+.drop small{display:block;font-size:11px;color:#899bb9;margin-top:5px}
+.drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.context{margin-top:14px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.context summary{list-style:none;padding:10px 12px;font-size:11px;color:#b6c7e3;cursor:pointer}
+.context summary:before{content:"+";font-weight:900;margin-right:8px;color:var(--accent)}
+.context[open] summary:before{content:"−"}
+.contextfields{padding:0 12px 13px}
+.contextfields label{margin-top:12px;margin-bottom:5px}
+.contextfields input{padding:9px 11px}
+.contextfields input + label{margin-top:11px}
+.note{font-size:10px;color:#8495b1;line-height:1.55;margin:16px 0 0}
+.result{border-top:1px solid var(--line);margin-top:20px;padding-top:18px}
+.result-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.result-head strong{font-size:12px}
+.result-tag{font-size:10px;color:var(--accent);background:var(--accentdim);border:1px solid var(--line);border-radius:99px;padding:5px 9px;text-transform:uppercase;letter-spacing:.08em}
+.state{font-size:12px;color:#a7b6cf;margin-top:8px;min-height:17px}
+.state.error{color:#ffafa9}
+.summary{font-size:12px;color:#b4c1d8;background:rgba(0,0,0,.15);border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:210px;overflow:auto}
+.downloads{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.smallbutton{border:1px solid #405773;border-radius:7px;color:#dceafa;background:#202f46;font-size:11px;padding:7px 9px}
+.smallbutton:hover{border-color:var(--accent)}
+.cards{display:grid;gap:10px;margin-top:11px;max-height:480px;overflow:auto}
+.knowledge-card{padding:13px;border:1px solid var(--line);background:rgba(6,10,20,.3);border-radius:11px}
+.knowledge-card p{font-size:12px;line-height:1.6;color:#d7e0f0;margin:7px 0 10px}
+.knowledge-label{font-size:10px;color:#ad92ec;text-transform:uppercase;letter-spacing:.13em}
+.decisions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.decision{font-size:10px;padding:6px 10px;border-radius:7px;border:1px solid #55516f;background:#2a2941;color:#e9deff}
+.decision.approved{background:#1a473f;border-color:#3c9377;color:#baf5df}
+.decision.rejected{background:#402b32;border-color:#76505d;color:#ffd1d1}
+.authbar{display:flex;align-items:center;gap:14px;background:rgba(19,29,46,.75);border:1px solid var(--line);border-radius:12px;padding:12px 15px;max-width:755px;margin:17px auto 18px;text-align:left}
+.authbar label{white-space:nowrap;margin:0}
+.authbar input{flex:1;padding:10px 12px}
+.authbar button{background:#293956;border:1px solid #50627f;border-radius:8px;color:white;padding:10px 13px;font-weight:750;font-size:11px}
+.authstate{font-size:11px;color:#b4c0d8;min-width:106px}
+footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid var(--line);padding:19px 0 30px;color:#71809b;font-size:11px}
+footer .footer-note{max-width:600px}
+@media(max-width:800px){.hemispheres{grid-template-columns:1fr}.panel-description{min-height:0}.brainview{height:235px}.legend{display:none}.brain-links{display:none}.panel-inner{padding:23px}.authbar{flex-wrap:wrap}.authbar label{width:100%}}
+@media(max-width:500px){.shell{width:calc(100% - 26px)}header{padding-top:17px}.branddesc{font-size:8px}.pill{font-size:9px;padding:8px}.brainview{height:170px}.hero{margin-top:18px}.authstate{min-width:auto}.actionline{flex-wrap:wrap}.actionline input,.actionline .primary{width:100%}footer{display:block}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+<header>
+  <div class="brand"><div class="mark" aria-hidden="true">M³</div><div><div class="brandname">MVI</div><div class="branddesc">M3 Video Intelligence</div></div></div>
+  <div class="pill"><span class="dot"></span> Private intelligence studio</div>
+</header>
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="kicker">The Intelligence System · Dual Hemisphere</div>
+  <h1 id="hero-title">Two sides. <span>One brain.</span></h1>
+  <p class="subtitle">One hemisphere studies the video. The other studies how to make the next one better.</p>
+  <div class="brainview">
+    <div class="legend left">ANALYZE <span class="stripe"></span></div>
+    <div class="legend right"><span class="stripe"></span> LEARN</div>
+    <svg viewBox="0 0 680 306" role="img" aria-labelledby="brain-title brain-desc">
+      <title id="brain-title">MVI brain viewed from below, divided into analysis and learning hemispheres</title>
+      <desc id="brain-desc">Left cyan hemisphere connects to creative analysis; right violet hemisphere connects to learning intake. The two share one central intelligence system.</desc>
+      <defs>
+        <radialGradient id="leftfill" cx="65%" cy="52%" r="75%"><stop stop-color="#314e64"/><stop offset=".5" stop-color="#152c42"/><stop offset="1" stop-color="#0b1d30"/></radialGradient>
+        <radialGradient id="rightfill" cx="35%" cy="52%" r="75%"><stop stop-color="#4b3b67"/><stop offset=".5" stop-color="#302445"/><stop offset="1" stop-color="#17172f"/></radialGradient>
+        <linearGradient id="spine" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#a2b5ed"/><stop offset="1" stop-color="#42486e"/></linearGradient>
+        <filter id="glow"><feGaussianBlur stdDeviation="5"/></filter>
+      </defs>
+      <!-- Brainstem and paired underside structures rather than a side-profile brain -->
+      <ellipse cx="340" cy="260" rx="43" ry="24" fill="#171c35" stroke="#555477" opacity=".8"/>
+      <path d="M328 203 C317 222 315 248 321 270 L329 295 Q340 301 352 295 L359 270 C365 244 359 218 352 201Z" fill="url(#spine)" opacity=".67"/>
+      <path d="M332 222 Q339 233 336 251 M348 227 Q343 242 349 264" stroke="#c2c8e7" fill="none" opacity=".45"/>
+      <path class="brain-side" d="M336 61 C311 30 262 20 224 39 C180 22 128 48 116 89 C83 107 76 145 95 179 C87 213 114 243 144 250 C159 278 194 282 220 265 C248 280 285 266 298 247 C332 233 336 201 329 174 C350 152 344 120 332 108 C347 87 344 74 336 61Z" fill="url(#leftfill)" stroke="#68cfdf" stroke-width="2.3"/>
+      <path class="brain-side" d="M344 61 C369 30 418 20 456 39 C500 22 552 48 564 89 C597 107 604 145 585 179 C593 213 566 243 536 250 C521 278 486 282 460 265 C432 280 395 266 382 247 C348 233 344 201 351 174 C330 152 336 120 348 108 C333 87 336 74 344 61Z" fill="url(#rightfill)" stroke="#ae94ee" stroke-width="2.3"/>
+      <g stroke="#62c6d8" stroke-width="2.2" stroke-linecap="round" fill="none" opacity=".69">
+        <path d="M310 72 Q278 53 251 77 Q224 94 244 114 Q273 125 291 96"/>
+        <path d="M219 52 Q183 77 187 109 Q196 129 215 130"/>
+        <path d="M147 75 Q122 102 139 133 Q166 143 179 125"/>
+        <path d="M104 152 Q141 152 157 171 Q171 202 153 226"/>
+        <path d="M177 148 Q211 156 207 185 Q197 205 218 236"/>
+        <path d="M246 140 Q285 132 293 163 Q291 184 268 203 Q246 226 267 250"/>
+        <path d="M322 126 Q300 139 307 171 Q325 196 296 220"/>
+        <path d="M126 200 Q150 190 173 217 Q196 253 226 251"/>
+        <path d="M212 94 Q233 80 241 61"/>
+      </g>
+      <g stroke="#b29cf3" stroke-width="2.2" stroke-linecap="round" fill="none" opacity=".7" transform="translate(680 0) scale(-1 1)">
+        <path d="M310 72 Q278 53 251 77 Q224 94 244 114 Q273 125 291 96"/>
+        <path d="M219 52 Q183 77 187 109 Q196 129 215 130"/>
+        <path d="M147 75 Q122 102 139 133 Q166 143 179 125"/>
+        <path d="M104 152 Q141 152 157 171 Q171 202 153 226"/>
+        <path d="M177 148 Q211 156 207 185 Q197 205 218 236"/>
+        <path d="M246 140 Q285 132 293 163 Q291 184 268 203 Q246 226 267 250"/>
+        <path d="M322 126 Q300 139 307 171 Q325 196 296 220"/>
+        <path d="M126 200 Q150 190 173 217 Q196 253 226 251"/>
+        <path d="M212 94 Q233 80 241 61"/>
+      </g>
+      <path d="M340 47 C331 75 339 94 338 116 C330 143 344 167 337 193 L340 222" stroke="#c9dcfa" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 9" opacity=".68" fill="none"/>
+      <path d="M310 184 Q332 162 340 172 Q348 162 370 184 M308 197 Q331 179 340 191 Q348 179 372 197" stroke="#9bb3e3" stroke-width="2" fill="none" opacity=".65"/>
+      <circle cx="340" cy="212" r="29" fill="#9a8fe3" opacity=".09" filter="url(#glow)"/>
+      <circle cx="340" cy="212" r="13" fill="#152138" stroke="#a7b3e8" stroke-width="1.8"/>
+      <circle cx="340" cy="212" r="4" fill="#e1e8ff"/>
+      <g stroke-width="1" opacity=".5"><path d="M225 250 V299" stroke="#7bdaee"/><path d="M455 250 V299" stroke="#c3a0ff"/></g>
+    </svg>
+  </div>
+  <div class="brain-links" aria-hidden="true"></div>
+</section>
+
+<section class="authbar" aria-label="Private access">
+  <label for="token">Secure access</label>
+  <input id="token" type="password" autocomplete="off" placeholder="Enter private MVI pilot token">
+  <button id="verify" type="button">Unlock studio</button>
+  <span id="authstate" class="authstate" role="status">Token not verified</span>
+</section>
+
+<main class="hemispheres">
+  <section class="panel panel-left" aria-labelledby="left-title" id="analysis">
+    <div class="panel-inner">
+      <div class="panel-top"><div class="eyebrow">01 / Creative hemisphere</div><div class="iconchip" aria-hidden="true">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 6 3-6 3z"/></svg>
+      </div></div>
+      <h2 id="left-title">Analyze a video.</h2>
+      <p class="panel-description">Drop footage into the creative brain. Get scene intelligence, editorial coaching, and improvements you can act on.</p>
+      <label for="analysis-url">Video URL</label>
+      <div class="actionline">
+        <input id="analysis-url" type="url" placeholder="Paste a YouTube video URL">
+        <button class="primary" id="analyze-link" type="button">Analyze link</button>
+      </div>
+      <div class="divider"><span>OR DROP A VIDEO</span></div>
+      <div class="drop" id="analysis-drop" role="button" tabindex="0" aria-label="Choose or drop a video for analysis">
+        <svg width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m10 8 7 4-7 4z"/></svg>
+        <strong id="analysis-filename">Drop footage here</strong>
+        <small>MP4 / MOV · Up to 500 MB · or click to browse</small>
+        <input id="analysis-file" type="file" accept=".mp4,.mov,video/mp4,video/quicktime">
+      </div>
+      <div style="height:12px"></div>
+      <button class="primary" id="analyze-upload" style="width:100%" type="button">Analyze selected video</button>
+      <details class="context">
+        <summary>Add creative direction (recommended)</summary>
+        <div class="contextfields">
+          <label for="audience">Target viewer</label>
+          <input id="audience" type="text" maxlength="240" placeholder="GTA fans who enjoy chaotic team moments">
+          <label for="promise">What does this video promise?</label>
+          <input id="promise" type="text" maxlength="240" placeholder="A ridiculous escape with a funny payoff">
+          <label for="outcome">Desired payoff</label>
+          <input id="outcome" type="text" maxlength="240" placeholder="A surprising or hilarious ending">
+          <label for="style">Intended style</label>
+          <input id="style" type="text" maxlength="240" placeholder="Fast, raw, comedic gameplay">
+        </div>
+      </details>
+      <p class="note">Analysis uses Vindex and MVI's evidence pipeline. Creative judgment remains provisional when the footage cannot establish it.</p>
+      <div class="result">
+        <div class="result-head"><strong>Analysis output</strong><span class="result-tag" id="analysis-tag">READY</span></div>
+        <div class="state" role="status" aria-live="polite" id="analysis-status">Awaiting your first video.</div>
+        <div class="downloads" id="analysis-downloads"></div>
+        <pre class="summary" id="analysis-summary" hidden></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel panel-right" aria-labelledby="right-title" id="learning">
+    <div class="panel-inner">
+      <div class="panel-top"><div class="eyebrow">02 / Learning hemisphere</div><div class="iconchip" aria-hidden="true">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M3 9c-2 2 0 5 2 5-2 4 2 7 5 5 2 3 3 1 2 0M21 9c2 2 0 5-2 5 2 4-2 7-5 5-2 3-3 1-2 0"/><path d="M4 9c-1-5 4-7 8-4M20 9c1-5-4-7-8-4M4 14l5-3m11 3-5-3"/></svg>
+      </div></div>
+      <h2 id="right-title">Teach the brain.</h2>
+      <p class="panel-description">Feed it editing lessons, video breakdowns and expert methods. Review what should become part of MVI's knowledge.</p>
+      <label for="learning-url">Teaching source URL</label>
+      <div class="actionline">
+        <input id="learning-url" type="url" placeholder="Paste a tutorial or YouTube lesson">
+        <button class="primary" id="learn-link" type="button">Ingest link</button>
+      </div>
+      <div class="divider"><span>OR DROP KNOWLEDGE</span></div>
+      <div class="drop" id="learning-drop" role="button" tabindex="0" aria-label="Choose or drop a video or transcript to teach MVI">
+        <svg width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4v12m-5-5 5 5 5-5M4 19h16M6 6c1-3 4-3 6-1 2-2 5-2 6 1"/></svg>
+        <strong id="learning-filename">Drop a lesson here</strong>
+        <small>MP4 / MOV / TXT / MD / VTT / SRT · or click to browse</small>
+        <input id="learning-file" type="file" accept=".mp4,.mov,.txt,.md,.vtt,.srt">
+      </div>
+      <div style="height:12px"></div>
+      <button class="primary" style="width:100%" id="learn-upload" type="button">Ingest selected file</button>
+      <div class="context" style="padding:12px 14px">
+        <div class="eyebrow" style="letter-spacing:.1em;font-size:9px">Learning protocol</div>
+        <div style="font-size:12px;color:#becbe0;margin-top:6px">Extract evidence → identify candidate lessons → approve / reject → apply approved sources to future analysis.</div>
+      </div>
+      <p class="note">Unreviewed lessons do not automatically become rules. Video uploads without extractable captions may need a separate transcript; deep semantic teaching models are a future stage.</p>
+      <div class="result">
+        <div class="result-head"><strong>Knowledge intake</strong><span class="result-tag" id="learning-tag">READY</span></div>
+        <div class="state" role="status" aria-live="polite" id="learning-status">Awaiting a learning source.</div>
+        <div id="learning-summary" class="summary" hidden></div>
+        <div id="learning-cards" class="cards" aria-label="Review extracted teaching candidates"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>
+  <span>M3 / MVI · Intelligence Studio</span>
+  <span class="footer-note">Private pilot. Upload only material you're authorized to analyze or ingest. Approval promotes a source excerpt for consideration, not an independently verified fact.</span>
+</footer>
+</div>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const TOKEN_KEY='mvi_token';
+const state={analysis:null,learning:null};
+$('token').value=sessionStorage.getItem(TOKEN_KEY)||'';
+const token = () => sessionStorage.getItem(TOKEN_KEY)||$('token').value.trim();
+const apiHeaders=(extra={})=>token()?{...extra,Authorization:'Bearer '+token()}:extra;
+async function api(path,options={}) {
+  const r=await fetch(path,{...options,headers:apiHeaders(options.headers||{})});
+  const text=await r.text();
+  let body;
+  try{body=JSON.parse(text)}catch{body={error:text.slice(0,400)||'Unexpected response'}}
+  if(!r.ok)throw new Error(body.error||'Request failed ('+r.status+')');
+  return body;
+}
+function status(lane,message,bad=false){
+  const el=$(lane+'-status');el.textContent=message;el.classList.toggle('error',bad);
+}
+function tag(lane,value){$(lane+'-tag').textContent=value.toUpperCase().slice(0,28)}
+function busy(element,flag){element.disabled=flag}
+function errorMessage(e){return e&&e.message?e.message:String(e)}
+$('verify').addEventListener('click',async ()=>{
+  const t=$('token').value.trim();
+  if(!t){sessionStorage.removeItem(TOKEN_KEY);$('authstate').textContent='Token cleared';return}
+  sessionStorage.setItem(TOKEN_KEY,t);$('authstate').textContent='Verifying…';
+  try{
+    const r=await fetch('/api/jobs/'+'0'.repeat(32),{headers:apiHeaders()});
+    if(r.status!==404)throw new Error('Invalid token');
+    $('authstate').textContent='Access verified';$('authstate').style.color='#85eac6';
+  }catch(e){sessionStorage.removeItem(TOKEN_KEY);$('authstate').textContent='Token rejected';$('authstate').style.color='#ffaaaa'}
+});
+function context(){
+  return {audience:$('audience').value.trim(),viewer_promise:$('promise').value.trim(),
+    viewer_outcome:$('outcome').value.trim(),intended_style:$('style').value.trim()};
+}
+function attachDrop(lane) {
+  const target=$(lane+'-drop'),file=$(lane+'-file'),text=$(lane+'-filename');
+  const choose=()=>file.click();
+  target.addEventListener('click',choose);
+  target.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose()}});
+  target.addEventListener('dragover',e=>{e.preventDefault();target.classList.add('dragging')});
+  target.addEventListener('dragleave',()=>target.classList.remove('dragging'));
+  target.addEventListener('drop',e=>{
+    e.preventDefault();target.classList.remove('dragging');
+    const dropped=e.dataTransfer?.files;
+    if(dropped&&dropped.length){file.files=dropped;text.textContent=dropped[0].name}
+  });
+  file.addEventListener('change',()=>{text.textContent=file.files[0]?.name||'Drop a file here'});
+}
+attachDrop('analysis');attachDrop('learning');
+async function downloadReport(id,kind,label){
+  try{
+    const r=await fetch('/api/reports/'+encodeURIComponent(id)+'/'+kind,{headers:apiHeaders()});
+    if(!r.ok)throw new Error('Download failed ('+r.status+')');
+    const object=URL.createObjectURL(await r.blob());
+    const a=document.createElement('a');a.href=object;a.download=id+'-'+kind+(kind==='timeline'?'.json':'.md');
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(object),30000);
+    status('analysis',label+' downloaded');
+  }catch(e){status('analysis',errorMessage(e),true)}
+}
+function showAnalysis(data){
+  const job=data.job_id||'';
+  tag('analysis',data.status||'unknown');
+  status('analysis',data.status==='completed'?'Analysis finished. Reports are ready.':
+    data.status==='failed'?'Analysis failed: '+(data.error||'unknown error'):
+    'Job '+job.slice(0,8)+'… · '+(data.status||'submitted'),data.status==='failed');
+  const summary=$('analysis-summary');
+  summary.hidden=false;
+  const report=data.editor_report||{};
+  const chunks=[];
+  if(report.summary)chunks.push(report.summary);
+  const insight=report.editorial_coaching;
+  if(insight){
+    chunks.push('Editorial coaching: '+insight.assessment);
+    if(insight.missing_context?.length)chunks.push('Context to clarify: '+insight.missing_context.join(' · '));
+    if(insight.prioritized_review?.length)chunks.push('First review point: '+insight.prioritized_review[0].question);
+  }
+  if(report.learned_principles?.length)chunks.push(
+    'Approved teaching sources available for review: '+report.learned_principles.length);
+  if(data.vindex_status)chunks.push('Vindex: '+data.vindex_status);
+  summary.textContent=chunks.length?chunks.join('\n\n'):('Status: '+(data.status||'unknown'));
+  const downloads=$('analysis-downloads');downloads.replaceChildren();
+  if(job&&data.status==='completed'&&data.report_url){
+    for(const [label,kind] of [['Editor report','editor'],['Editor handoff','handoff'],['Evidence timeline','timeline']]){
+      const btn=document.createElement('button');btn.type='button';btn.className='smallbutton';btn.textContent='↓ '+label;
+      btn.addEventListener('click',()=>downloadReport(job,kind,label));downloads.append(btn);
+    }
+  }
+}
+async function pollAnalysis(id){
+  if(state.analysis!==id)return;
+  try{
+    const data=await api('/api/jobs/'+id);showAnalysis(data);
+    if(['queued','retrieving','running','compiling_timeline','reviewing_frames'].includes(data.status)){
+      setTimeout(()=>pollAnalysis(id),2600);
+    }
+  }catch(e){status('analysis',errorMessage(e),true);tag('analysis','error')}
+}
+async function submitAnalysis(which){
+  const button=$(which==='link'?'analyze-link':'analyze-upload');
+  busy(button,true);tag('analysis','sending');status('analysis','Submitting video…');
+  try{
+    let data;
+    if(which==='link'){
+      const url=$('analysis-url').value.trim();
+      if(!url)throw new Error('Paste a video URL first');
+      data=await api('/api/url',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url,editorial_context:context()})});
+    }else{
+      const f=$('analysis-file').files[0];if(!f)throw new Error('Choose an MP4 or MOV first');
+      data=await api('/api/upload',{method:'POST',
+        headers:{'X-Filename':encodeURIComponent(f.name),'X-MVI-Context':encodeURIComponent(JSON.stringify(context())),
+          'Content-Type':f.type||'application/octet-stream'},body:f});
+    }
+    state.analysis=data.job_id;showAnalysis(data);pollAnalysis(data.job_id);
+  }catch(e){status('analysis',errorMessage(e),true);tag('analysis','error')}
+  finally{busy(button,false)}
+}
+$('analyze-link').addEventListener('click',()=>submitAnalysis('link'));
+$('analyze-upload').addEventListener('click',()=>submitAnalysis('upload'));
+async function decision(job,card,decisionValue,container) {
+  try{
+    await api('/api/learn/decide',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({job_id:job,card_id:card,decision:decisionValue})});
+    await pollLearning(job,true);
+  }catch(e){status('learning',errorMessage(e),true)}
+}
+function showLearning(data) {
+  tag('learning',data.phase||data.status||'unknown');
+  const count=Number(data.candidate_count||0);
+  if(data.status==='completed'){
+    let message='';
+    if(data.phase==='needs_transcript')message='Source stored. No captions were found; provide a transcript to teach it.';
+    else if(data.phase==='no_editing_candidates')message='Source transcribed; no qualifying editing excerpts found.';
+    else message='Extracted '+count+' possible lessons. Review each before approval.';
+    status('learning',message);
+  } else status('learning',data.status==='failed'?'Intake failed: '+(data.error||'unknown error'):
+    'Learning job '+(data.job_id||'').slice(0,8)+'… · '+data.status,data.status==='failed');
+  const sum=$('learning-summary');sum.hidden=false;
+  sum.textContent=data.status==='completed'?
+    ('Source: '+(data.source?.title||data.source?.url||'Uploaded file')+
+     '\nTranscript: '+(data.transcript_characters||0).toLocaleString()+' characters'+
+     '\nCandidates: '+count+' · Approved: '+Object.values(data.decisions||{}).filter(v=>v==='approve').length+
+     '\nState: '+data.phase):('Status: '+data.status);
+  const area=$('learning-cards');area.replaceChildren();
+  if(data.status!=='completed'||!data.candidates)return;
+  for(const card of data.candidates) {
+    const box=document.createElement('article');box.className='knowledge-card';
+    const label=document.createElement('div');label.className='knowledge-label';
+    const reviewed=data.decisions?.[card.id];
+    label.textContent=reviewed==='approve'?'Approved for consultation':reviewed==='reject'?'Rejected':'Unverified source excerpt';
+    const quote=document.createElement('p');quote.textContent='“'+card.excerpt+'”';
+    const choices=document.createElement('div');choices.className='decisions';
+    for(const [action,text] of [['approve','Accept as useful'],['reject','Reject']]) {
+      const btn=document.createElement('button');btn.type='button';btn.textContent=text;
+      btn.className='decision'+(reviewed===action?(action==='approve'?' approved':' rejected'):'');
+      btn.setAttribute('aria-pressed',String(reviewed===action));
+      btn.onclick=()=>decision(data.job_id,card.id,action,box);
+      choices.append(btn);
+    }
+    box.append(label,quote,choices);area.append(box);
+  }
+}
+async function pollLearning(id,once=false){
+  if(state.learning!==id)return;
+  try{
+    const data=await api('/api/learn/jobs/'+id);showLearning(data);
+    if(!once&&['queued','running'].includes(data.status))setTimeout(()=>pollLearning(id),2600);
+  }catch(e){status('learning',errorMessage(e),true);tag('learning','error')}
+}
+async function submitLearning(which){
+  const button=$(which==='link'?'learn-link':'learn-upload');
+  busy(button,true);tag('learning','sending');status('learning','Sending teaching material…');
+  try{
+    let data;
+    if(which==='link'){
+      const url=$('learning-url').value.trim();
+      if(!url)throw new Error('Paste a teaching video URL first');
+      data=await api('/api/learn/url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    } else {
+      const f=$('learning-file').files[0];if(!f)throw new Error('Choose a teaching video or transcript first');
+      data=await api('/api/learn/upload',{method:'POST',
+        headers:{'X-Filename':encodeURIComponent(f.name),'Content-Type':f.type||'application/octet-stream'},body:f});
+    }
+    state.learning=data.job_id;showLearning(data);pollLearning(data.job_id);
+  }catch(e){status('learning',errorMessage(e),true);tag('learning','error')}
+  finally{busy(button,false)}
+}
+$('learn-link').addEventListener('click',()=>submitLearning('link'));
+$('learn-upload').addEventListener('click',()=>submitLearning('upload'));
+})();
+</script>
+</body>
+</html>

@@ -32,3 +32,10 @@ Snapshots contain queue metadata and payloads, **not video uploads, evidence, or
 A recoverable installation also needs secure backups of `/var/lib/mvi` job media and
 outputs, coordinated with queue state. Never claim full disaster recovery from a
 queue-only snapshot. Do not restore a snapshot over a running service.
+
+## Dual Brain UI (2026-10-26)
+
+The same MVI web service now serves an analysis hemisphere and a separate source-learning hemisphere from `brain_studio.html`.
+Both use the private bearer token for API requests; the shell remains readable without authorization so a token can be entered.
+Teaching sources join the durable worker queue and candidate excerpts cannot influence editor reports until explicitly approved.
+See `research/DUAL_BRAIN_PILOT.md` for routes, assumptions, test coverage and known limitations.

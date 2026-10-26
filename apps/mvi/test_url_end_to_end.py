@@ -15,7 +15,8 @@ from review_pipeline import review as actual_review
 
 class UrlReportTests(unittest.TestCase):
  def test_browser_continues_polling_during_retrieval(self):
-  self.assertIn('j.status==="retrieving"',server.HTML)
+  self.assertIn('pollAnalysis',server.HTML)
+  self.assertIn("'queued','retrieving','running'",server.HTML)
 
  def test_url_generates_same_report_and_handoff_as_upload(self):
   with tempfile.TemporaryDirectory() as temp:

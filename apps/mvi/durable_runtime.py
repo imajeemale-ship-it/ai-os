@@ -65,6 +65,9 @@ def process(root, claim):
     # Keep each attempt's outputs isolated; no retry may publish over a previous attempt.
     attempt_dir=directory/('attempt-'+str(claim['attempt']))
     attempt_dir.mkdir(mode=0o700,exist_ok=False)
+    if claim['kind'] in ('learn_url', 'learn_upload'):
+        from learning_brain import process_source
+        return process_source(root, claim, attempt_dir)
     if claim['kind']=='url':
         meta,path=retrieve(payload['url'],attempt_dir)
     else:
@@ -75,6 +78,8 @@ def process(root, claim):
         if not path.is_file() or path.is_symlink():
             raise FileNotFoundError('Durable upload is missing')
         meta={'title':payload['title']}
+    if isinstance(payload.get('editorial_context'), dict):
+        meta['editorial_context'] = payload['editorial_context']
     technical=inspect(path,attempt_dir/'evidence')
     try:
         timeline=compile_video_evidence(path,attempt_dir/'vindex')
