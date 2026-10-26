@@ -4,13 +4,37 @@ from pathlib import Path
 from typing import Any, Optional, cast
 
 from vindex.core.interfaces.runtimes import RuntimePlugin
-from vindex.runtimes.asr.faster_whisper_runtime import FasterWhisperRuntime
-from vindex.runtimes.asr.whisper_cpp_runtime import WhisperCppRuntime
-from vindex.runtimes.embedding.minilm_runtime import MiniLMEmbeddingRuntime
-from vindex.runtimes.motion.opencv_runtime import OpenCVFlowRuntime
-from vindex.runtimes.objects.yolov8_runtime import YOLOv8ObjectDetectionRuntime
-from vindex.runtimes.ocr.paddleocr_runtime import PaddleOCRRuntime
-from vindex.runtimes.vision.mlx_vlm_runtime import MLXVLMRuntime
+
+# Optional model runtimes are loaded only when their stage is requested. Scene/frame
+# compilation must remain usable in the lightweight production image.
+try:
+    from vindex.runtimes.asr.faster_whisper_runtime import FasterWhisperRuntime
+except ImportError:
+    FasterWhisperRuntime = None
+try:
+    from vindex.runtimes.asr.whisper_cpp_runtime import WhisperCppRuntime
+except ImportError:
+    WhisperCppRuntime = None
+try:
+    from vindex.runtimes.embedding.minilm_runtime import MiniLMEmbeddingRuntime
+except ImportError:
+    MiniLMEmbeddingRuntime = None
+try:
+    from vindex.runtimes.motion.opencv_runtime import OpenCVFlowRuntime
+except ImportError:
+    OpenCVFlowRuntime = None
+try:
+    from vindex.runtimes.objects.yolov8_runtime import YOLOv8ObjectDetectionRuntime
+except ImportError:
+    YOLOv8ObjectDetectionRuntime = None
+try:
+    from vindex.runtimes.ocr.paddleocr_runtime import PaddleOCRRuntime
+except ImportError:
+    PaddleOCRRuntime = None
+try:
+    from vindex.runtimes.vision.mlx_vlm_runtime import MLXVLMRuntime
+except ImportError:
+    MLXVLMRuntime = None
 
 logger = logging.getLogger("vindex.scheduler")
 
