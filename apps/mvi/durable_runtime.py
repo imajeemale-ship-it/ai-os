@@ -81,7 +81,7 @@ def process(root, claim):
         vindex_status='completed'
     except Exception as exc:
         timeline=None
-        vindex_status='unavailable: '+str(exc)[:250]
+        vindex_status='unavailable: '+str(exc)[:3000]
     (attempt_dir/'DAVID_EDITOR_HANDOFF.md').write_text(build_brief(meta.get('title','M3 video'),timeline))
     report=review(attempt_dir,meta,technical,timeline,
                   enable_local_vision=os.environ.get('MVI_ENABLE_LOCAL_VISION')=='1',source_path=path)
