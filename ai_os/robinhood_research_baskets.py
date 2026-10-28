@@ -254,4 +254,8 @@ def run_basket(
 
 
 def run_research_baskets(symbols: str | list[str]) -> dict[str, dict[str, Any]]:
-    return {name: run_basket(name, symbols) for name in BASKETS}
+    results = {name: run_basket(name, symbols) for name in BASKETS}
+    # Shadow comparison is isolated from funded paper baskets and never opens a position.
+    from ai_os.robinhood_strategy_comparison import run_strategy_comparison
+    results["strategy_comparison"] = run_strategy_comparison(symbols)
+    return results
