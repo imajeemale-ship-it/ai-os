@@ -35,7 +35,9 @@ def run_strategy_comparison(
             candidates.extend(data.long_call_candidates(symbol, policy))
         except Exception as exc:
             rejected.append({"symbol": symbol, "reason": str(exc)})
-    records = {}
+    from ai_os.robinhood_market_regime import monitor_market_regime
+    regime = monitor_market_regime(data.directional_signals)
+    records = {"market_regime": regime}
     for name, spec in STRATEGIES.items():
         eligible = []
         for quote in candidates:
