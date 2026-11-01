@@ -10,3 +10,14 @@
 - **Important package-name collision:** https://pypi.org/project/vindex/ currently describes a different project associated with `dripston/vindex`. Do not assume `pip install vindex` installs the `vaibhav-space/vindex` project. Use a verified source URL and pinned revision if integration is later approved.
 
 **Release disposition:** preserve the vendored license and treat the upstream origin as provisionally identified. Verify exact source commit and file differences before declaring provenance complete.
+
+## File-by-file comparison against upstream HEAD
+
+On 2026-11-01, cloned `https://github.com/vaibhav-space/vindex.git` at upstream HEAD `174f0247907fe6e2d56e8d06d67872d1519e52e4` into a temporary review directory. Compared SHA-256 hashes of all regular files with the vendored directory:
+
+- **136** files in each tree, identical relative path sets.
+- **134** files byte-for-byte identical.
+- **2** locally modified files: `vindex/compiler/pipeline.py` (26 insertions, 6 deletions) and `vindex/compiler/scheduler.py` (31 insertions, 7 deletions), compared with upstream HEAD.
+- No vendor-only or upstream-only paths.
+
+**Conclusion:** The vendored tree is a close match to this upstream revision but **not an unmodified copy**. Modification authorship, correctness, and upstream licensing obligations still need review. Do not overwrite these local changes during a vendor refresh.
