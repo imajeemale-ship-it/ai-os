@@ -20,7 +20,11 @@ SYSTEM = (
     "actually visible or said at that time. Never invent dialogue, jokes or events. Judge against the video's "
     "stated promise and style when given. Respond with JSON only, shaped as: "
     '{"categories":{"<key>":{"score":<number>,"evidence":[{"timestamp_seconds":<n>,"observation":"..."}],'
-    '"feedback":"...","fixes":[{"timestamp_seconds":<n>,"fix":"..."}]}}}'
+    '"feedback":"...","fixes":[{"timestamp_seconds":<n>,"fix":"..."}],"principles":["<approved principle id that applies>"]}},'
+    '"trend_fit":{"score":<0-20>,"evidence":[{"metric":"<a key from the trend packet stats>","observation":"..."}],"feedback":"...",'
+    '"fixes":[{"fix":"..."}]}}. Include trend_fit only if a trend packet is supplied; compare the video to the trend stats '
+    '(duration, title habits, popularity level) and never claim to know what any platform algorithm prefers. '
+    'Only cite principle ids from the supplied approved list. Trends are a minor part of the score; do not reward copying a trend over a well-made video.'
 )
 
 
@@ -37,6 +41,10 @@ class AnthropicJudge:
     def judge(self, packet):
         content = [{'type': 'text', 'text': 'RUBRIC:\n' + json.dumps(describe(), indent=1)}]
         content.append({'type': 'text', 'text': 'VIDEO FACTS:\n' + json.dumps(packet['facts'], indent=1)})
+        if packet.get('principles'):
+            content.append({'type': 'text', 'text': 'APPROVED PRINCIPLES (cite ids):\n' + json.dumps(packet['principles'], indent=1)})
+        if packet.get('trends'):
+            content.append({'type': 'text', 'text': 'CURRENT TREND PACKET (snapshot of public data):\n' + json.dumps(packet['trends'], indent=1)})
         if packet.get('transcript_text'):
             content.append({'type': 'text', 'text': '<transcript data>\n' + packet['transcript_text'].replace('transcript data>', 'transcript-data') + '\n</transcript data>'})
         for fr in packet['frames']:

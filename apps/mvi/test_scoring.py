@@ -54,8 +54,16 @@ class PlatformTests(unittest.TestCase):
 
 
 def good(ts=(1,2)):return [{'timestamp_seconds':t,'observation':'saw something at %s'%t} for t in ts]
-def full(score_frac=1.0):
- return {'categories':{k:{'score':v*score_frac,'evidence':good(),'feedback':'ok','fixes':[{'timestamp_seconds':3,'fix':'trim'}]} for k,v in RUBRIC.items()}}
+def TREND(now=None):
+ import trends
+ rows=[{'video_id':str(i),'title':'GTA %d'%i,'channel':'c','published':None,'duration_seconds':600+i*10,'views':1000*i} for i in range(1,8)]
+ return {'source':'youtube_data_api_v3','scope':'test','region':'US','retrieved_at':now or time.time(),'note':'','stats':trends.stats(rows),'examples':rows}
+def trend_fit(points=18,metrics=('median_duration_seconds','median_views')):
+ return {'score':points,'evidence':[{'metric':m,'observation':'compared '+m} for m in metrics],'feedback':'','fixes':[{'fix':'tighten'}]}
+def full(score_frac=1.0,trend=True):
+ out={'categories':{k:{'score':v*score_frac,'evidence':good(),'feedback':'ok','fixes':[{'timestamp_seconds':3,'fix':'trim'}]} for k,v in RUBRIC.items()}}
+ if trend:out['trend_fit']=trend_fit()
+ return out
 
 class ValidateTests(unittest.TestCase):
  ALL={'frames','transcript','timeline','audio_measures'}
@@ -100,9 +108,9 @@ class ScoreVideoTests(unittest.TestCase):
    self.assertIn('missing input',r['scorecard']['categories']['humor_entertainment']['reason'])
    self.assertEqual(len(j.packets[0]['frames']),4)
    (jd/'transcript.vtt').write_text(VTT)
-   r2=scoring.score_video(clip,tech,{'timeline':[],'scene_count':1},jd,FakeJudge(full(0.9)),max_usd=1,frame_count=4)
-   self.assertEqual(r2['status'],'scored');self.assertEqual(r2['scorecard']['content_quality_score'],90.0)
-   self.assertEqual(r2['scorecard']['recommendation'],'PUBLISH')
+   r2=scoring.score_video(clip,tech,{'timeline':[],'scene_count':1},jd,FakeJudge(full(0.9)),max_usd=1,frame_count=4,trends=TREND())
+   self.assertEqual(r2['status'],'scored');self.assertEqual(r2['knowledge_score'],90.0);self.assertEqual(r2['overall_score'],90.0)
+   self.assertEqual(r2['recommendation'],'PUBLISH')
    self.assertTrue(r2['scorecard']['categories']['opening_hook']['fixes'])
    self.assertTrue(r2['platform_fit']['advisory_only'])
  def test_cost_cap_blocks_before_judge_runs(self):
@@ -150,7 +158,7 @@ class EndpointTests(unittest.TestCase):
      self.assertEqual(code,200);self.assertTrue(r['transcript']['timed'])
      self.assertEqual(req('POST','/api/jobs/'+'0'*32+'/transcript',body,{'X-Filename':'x.vtt','Content-Length':str(len(body))})[0],404)
      # cap and confirmation enforced
-     with patch.dict(os.environ,PRICES),patch.object(server,'get_judge',lambda:FakeJudge(full(0.9))):
+     with patch.dict(os.environ,PRICES),patch.object(server,'get_judge',lambda:FakeJudge(full(0.9))),patch.object(server.trendlib,'get',lambda *a,**k:TREND()):
       self.assertEqual(req('POST',f'/api/jobs/{jid}/score',b'{}',{'Content-Length':'2'})[0],400)
       tiny=json.dumps({'confirm_max_usd':0.0001}).encode()
       self.assertEqual(req('POST',f'/api/jobs/{jid}/score',tiny,{'Content-Length':str(len(tiny))})[0],400)

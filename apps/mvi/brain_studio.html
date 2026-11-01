@@ -257,6 +257,14 @@ footer .footer-note{max-width:600px}
     </div>
   </section>
 </main>
+<section class="panel" id="principles" style="max-width:1100px;margin:16px auto;padding:16px">
+  <strong>What the scorer treats as known to work</strong>
+  <div class="state" style="margin:6px 0">Each principle has a source. Nothing affects a score until you approve it. Official YouTube guidance is high confidence; creator-video lessons are low confidence, so treat them as ideas to test.</div>
+  <button class="smallbutton" id="principles-load" type="button">Load principles</button>
+ <button class="smallbutton" id="trends-load" type="button">Show current YouTube trends</button>
+  <pre id="trends-out" style="white-space:pre-wrap;font-size:12px;margin:8px 0 0"></pre>
+  <div id="principles-list" style="display:grid;gap:8px;margin-top:10px"></div>
+</section>
 <footer>
   <span>M3 / MVI · Intelligence Studio</span>
   <span class="footer-note">Private pilot. Upload only material you're authorized to analyze or ingest. Approval promotes a source excerpt for consideration, not an independently verified fact.</span>
@@ -494,6 +502,36 @@ async function submitLearning(which){
   }catch(e){status('learning',errorMessage(e),true);tag('learning','error')}
   finally{busy(button,false)}
 }
+async function loadPrinciples(){
+  const box=$('principles-list');box.replaceChildren();
+  try{
+    const r=await api('/api/knowledge');
+    for(const p of r.principles){
+      const row=document.createElement('div');row.style.cssText='border:1px solid #405773;border-radius:8px;padding:10px;font-size:13px';
+      const head=document.createElement('div');head.style.cssText='font-weight:600;margin-bottom:4px';
+      head.textContent=p.id+' · '+p.confidence+' confidence · '+p.decision;
+      const body=document.createElement('div');body.textContent=p.text;
+      const src=document.createElement('div');src.style.cssText='opacity:.7;font-size:11px;margin:4px 0';src.textContent='Source: '+p.source;
+      const bar=document.createElement('div');bar.style.cssText='display:flex;gap:6px';
+      for(const d of ['approve','reject','pending']){
+        const b=document.createElement('button');b.type='button';b.className='smallbutton';b.textContent=d;
+        b.addEventListener('click',async()=>{try{await api('/api/knowledge/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:p.id,decision:d})});loadPrinciples()}catch(e){head.textContent=errorMessage(e)}});
+        bar.append(b);
+      }
+      row.append(head,body,src,bar);box.append(row);
+    }
+  }catch(e){box.textContent=errorMessage(e)}
+}
+$('principles-load').addEventListener('click',loadPrinciples);
+$('trends-load').addEventListener('click',async()=>{
+  const out=$('trends-out');out.textContent='Loading…';
+  try{const t=await api('/api/trends/youtube');const s=t.stats;
+    out.textContent='Snapshot '+new Date(t.retrieved_at*1000).toLocaleString()+' · '+t.scope+'\nVideos sampled: '+s.count+' · median length: '+Math.round(s.median_duration_seconds/60*10)/10+' min · median views: '+s.median_views+
+      '\nLength mix: under 1 min '+s.duration_share_under_60s+', 1-5 min '+s.duration_share_1_to_5min+', 5-15 min '+s.duration_share_5_to_15min+', over 15 min '+s.duration_share_over_15min+
+      '\nTitles: '+Math.round(s.share_titles_with_number*100)+'% have a number, '+Math.round(s.share_titles_with_question*100)+'% a question, '+Math.round(s.share_titles_with_allcaps_word*100)+'% an ALL-CAPS word · common words: '+s.top_title_words.join(', ')+
+      '\n'+t.note;
+  }catch(e){out.textContent=errorMessage(e)}
+});
 $('learn-link').addEventListener('click',()=>submitLearning('link'));
 $('learn-upload').addEventListener('click',()=>submitLearning('upload'));
 })();
