@@ -15,7 +15,8 @@ from review_pipeline import review as actual_review
 
 class UrlReportTests(unittest.TestCase):
  def test_browser_continues_polling_during_retrieval(self):
-  self.assertIn('j.status==="retrieving"',server.HTML)
+  self.assertIn('pollAnalysis',server.HTML)
+  self.assertIn("'queued','retrieving','running'",server.HTML)
 
  def test_url_generates_same_report_and_handoff_as_upload(self):
   with tempfile.TemporaryDirectory() as temp:
@@ -25,7 +26,7 @@ class UrlReportTests(unittest.TestCase):
     '-i','testsrc2=size=160x90:rate=10','-t','1.5','-pix_fmt','yuv420p','-y',str(clip)],check=True)
    meta={'title':'Mock authorized clip','source':'youtube'}
    with patch.object(server,'ROOT',root/'jobs'), \
-        patch.object(server,'retrieve',return_value=(meta,clip)), \
+        patch.object(server,'retrieve',return_value=(meta,clip)), patch.object(server,'fetch_captions',return_value=None), \
         patch.object(server,'compile_video_evidence',return_value={
          'shots':[{'start_seconds':0.0,'end_seconds':1.5}],'scene_count':1}), \
         patch.object(server,'review',side_effect=lambda *a,**kw:actual_review(*a,enable_local_vision=False)):
@@ -73,7 +74,8 @@ class UrlReportTests(unittest.TestCase):
     server.JOBS[job]={'job_id':job,'status':'queued','creative_score':None}
     server.run_url_job(job,'https://youtu.be/dQw4w9WgXcQ',directory)
     saved=json.loads((directory/'job.json').read_text())
-    self.assertEqual(saved['status'],'failed')
+    self.assertEqual(saved['status'],'needs_fallback')
+    self.assertEqual(saved['next_actions'][0]['step'],'upload_file')
     self.assertIsNone(saved['creative_score'])
     self.assertFalse((directory/'EDITOR_REPORT.md').exists())
     server.JOBS.pop(job,None)

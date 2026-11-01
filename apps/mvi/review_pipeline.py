@@ -25,6 +25,14 @@ def review(directory,metadata,technical,timeline=None,enable_local_vision=True,s
  except Exception as exc:
   warnings.append('Human frame notes excluded: '+str(exc)[:220])
  report=save_report(directory,metadata,technical,timeline,visual,audio,human)
+ try:
+  from learning_brain import approved_principles
+  import os
+  root=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
+  report['learned_principles']=approved_principles(root,metadata.get('title',''))
+ except Exception as exc:
+  warnings.append('Learning library not available: '+str(exc)[:150])
+  report['learned_principles']=[]
  report['review_stages']={'scene_timeline':'completed' if timeline else 'unavailable','sampled_frame_vision':'completed' if visual else ('unavailable' if enable_local_vision else 'disabled'),'audio_signal':'completed' if audio else 'unavailable','audio_semantics':'not_implemented','full_motion':'not_implemented','human_inspected_frames':'completed' if human else 'unavailable'}
  report['review_warnings']=warnings
  report['limitations'].append('A local vision model may misdescribe individual frames; all such observations require human verification.')

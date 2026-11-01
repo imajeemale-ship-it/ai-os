@@ -13,6 +13,22 @@ def video_id(url):
     if not re.fullmatch(r'[A-Za-z0-9_-]{11}',candidate):raise ValueError('Invalid YouTube video ID')
     return candidate
 
+TIKTOK_HOSTS={'tiktok.com','www.tiktok.com','m.tiktok.com','vm.tiktok.com','vt.tiktok.com'}
+INSTAGRAM_HOSTS={'instagram.com','www.instagram.com'}
+INSTAGRAM_PATHS=('/reel/','/reels/','/p/','/tv/')
+
+def parse_link(url):
+    """Return {'platform','url'} for supported public links; reject everything else."""
+    if not isinstance(url,str) or len(url)>2048:raise ValueError('Invalid link')
+    p=urlparse(url.strip())
+    if p.scheme not in ('http','https'):raise ValueError('Link must start with https://')
+    host=(p.hostname or '').lower()
+    if host in TIKTOK_HOSTS and len(p.path.strip('/'))>0:
+        return {'platform':'tiktok','url':f'https://{host}{p.path}'}
+    if host in INSTAGRAM_HOSTS and p.path.startswith(INSTAGRAM_PATHS):
+        return {'platform':'instagram','url':f'https://{host}{p.path}'}
+    return {'platform':'youtube','url':'https://www.youtube.com/watch?v='+video_id(url)}
+
 def inspect(url):
     vid=video_id(url)
     proc=subprocess.run(['python3','-m','yt_dlp','--skip-download','--dump-single-json','--no-playlist',f'https://www.youtube.com/watch?v={vid}'],capture_output=True,text=True,timeout=90)
