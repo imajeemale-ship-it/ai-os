@@ -1,38 +1,49 @@
-# AI-OS v0.1 verification (2026-11-01)
+# AI-OS v0.1 — reproducible verification
 
-Status: release candidate in preparation; **not released**.
+**Status:** release candidate under review; not published.
 
-## Verified baseline
+## Verified on 2026-11-01
 
-- Commit: `8186d546bbaa3ee4358249f47ba119ac16ccde4c`.
-- macOS / Python 3.14.5.
-- `python3 -m unittest discover -s tests -v`: **112 tests passed, zero failures** (1.733 seconds).
-- With an isolated temporary SQLite database, `init`, `project add`, `projects`, `plan`, and `run` completed successfully. An empty plan did not change task state.
+Baseline: `8186d546bbaa3ee4358249f47ba119ac16ccde4c`, macOS Apple Silicon.
 
-## Reproducible smoke test
+| Check | Evidence |
+|---|---|
+| Python 3.14.5 root suite | 112 passed, 0 failed, 1.733s |
+| Python 3.11.15 root suite | 112 passed, 0 failed, 1.433s |
+| Fresh Python 3.11 virtual environment | `pip install --no-deps -e .` succeeded; installed ai-os 0.1.0 |
+| Installed CLI | `ai-os init` and `ai-os plan` exited 0 |
+| Nonempty task lifecycle | project and task created; plan ranked task; dry-run made no change; explicit `run --accept-task` changed task to `in_progress` |
+| External execution | Not performed; acceptance only updates local task state |
 
-Run from the repository root:
+## Reproduce locally
+
+From the repository root, with Python 3.11+:
 
 ```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
 export AI_OS_DB="$(mktemp -d)/ai_os.db"
-python3 -m ai_os init
-python3 -m ai_os project add "Portfolio Demo" --priority 1 --goal "Demonstrate reviewable execution"
-python3 -m ai_os projects
-python3 -m ai_os plan
-python3 -m ai_os run
-python3 -m unittest discover -s tests -v
+.venv/bin/ai-os init
+.venv/bin/ai-os project add "Portfolio Demo" --priority 1 --goal "Demonstrate reviewable execution"
+.venv/bin/ai-os projects
+# Copy the project id from the previous output:
+.venv/bin/ai-os task add PROJECT_ID "Review a safe task" --priority 1
+.venv/bin/ai-os plan
+.venv/bin/ai-os run
+# Copy the recommended task id from the plan:
+.venv/bin/ai-os run --accept-task TASK_ID
+.venv/bin/ai-os tasks
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-The default `run` behavior prepares a plan, not external execution. This smoke test uses no third-party services.
+On Windows, use the corresponding virtual environment activation and executable paths. The exact commands above were tested on macOS, not Windows.
 
-## Open release gates
+## Unresolved gates
 
-- Clean Python 3.11 installation and package installation test.
-- Tracked-file and Git-history secrets/privacy audit.
-- Licensing and third-party provenance review (no root `LICENSE` file found).
-- CI setup and cross-platform test coverage (no baseline `.github/workflows` directory found).
-- Nonempty task lifecycle demonstration.
-- Independent review of release documentation and claims.
-- MVI under `apps/mvi` needs its own tests and video-to-report verification; the 112 root tests do not establish that.
+- Full repository **and history** secrets/personal-data audit; a filename check alone is not sufficient.
+- Licensing and third-party provenance review; no root `LICENSE` was found. Vendored Vindex has its own license, which does not establish licensing for the whole repository.
+- CI workflow and independent clean-platform verification; no root CI workflow found.
+- MVI end-to-end workflow, deployment, and security checks are separate from the 112 root tests.
+- Final README, architecture, release notes, and PR review.
 
-Do not merge or publish a release until these gates have been evaluated.
+Do not merge or tag a public release before evaluating these gates.
