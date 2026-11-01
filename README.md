@@ -1,5 +1,8 @@
 # AI-OS
 
+> **v0.1 release candidate:** The verified core is a local-first planning and task-acceptance control plane, not an unattended external-action agent. [Architecture](docs/ARCHITECTURE_V0_1.md) · [Verification evidence](docs/RELEASE_VERIFICATION.md) · [Draft release notes](docs/RELEASE_NOTES_V0_1.md).
+
+
 A local-first operating system for turning goals into safe, reviewable execution.
 
 ## First milestones
