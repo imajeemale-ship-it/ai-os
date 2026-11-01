@@ -42,8 +42,14 @@ On Windows, use the corresponding virtual environment activation and executable 
 
 - Full repository **and history** secrets/personal-data audit; a filename check alone is not sufficient.
 - Licensing and third-party provenance review; no root `LICENSE` was found. Vendored Vindex has its own license, which does not establish licensing for the whole repository.
-- CI workflow and independent clean-platform verification; no root CI workflow found.
+- Independent reviewer sign-off remains outstanding. CI exists at `.github/workflows/core-tests.yml`; Ubuntu Python 3.11 and 3.14 passed tests, installation, and CLI smoke checks in run [41364368386](https://github.com/imajeemale-ship-it/ai-os/actions/runs/41364368386) for `6ea17650e280718a4cc7cd5b90b7aaa612142038`.
 - MVI end-to-end workflow, deployment, and security checks are separate from the 112 root tests.
-- Final README, architecture, release notes, and PR review.
+- README, architecture, release notes, and evidence pages have been reviewed for scope consistency; independent PR review remains required.
 
 Do not merge or tag a public release before evaluating these gates.
+
+## Final core regression, 2026-11-01
+
+At release branch commit `6ea17650e280718a4cc7cd5b90b7aaa612142038`, reran the root suite on macOS: Python 3.11 passed 112 tests in 1.227s; Python 3.14 passed 112 in 1.169s. No production service was started or restarted. See [Vindex review](VINDEX_UPSTREAM_REVIEW.md) for the adjacent component's known limitations.
+
+`main` advanced separately to `b03a0b6` with an MVI merge during review. These local results describe the release branch, not all new MVI code on `main`. CI on the final PR revision must pass before merge consideration.
