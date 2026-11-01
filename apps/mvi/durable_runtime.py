@@ -6,7 +6,7 @@ from pathlib import Path
 from durable_queue import DurableQueue
 from queue_worker import run_once
 from job_state import save as save_job
-from url_jobs import retrieve
+from url_jobs import retrieve, fetch_captions
 from engine import inspect
 from vindex_runner import compile_video_evidence
 from editor_handoff import build_brief
@@ -36,6 +36,11 @@ def state(root, job_id):
             path=Path(root)/job_id/('attempt-'+str(winner))/'job.json'
             if path.is_file():
                 result=json.loads(path.read_text())
+                resolved=Path(root)/job_id/'resolved.json'
+                if resolved.is_file():
+                    result['resolved_by']=json.loads(resolved.read_text()).get('resolved_by')
+                if result.get('status')=='needs_fallback':
+                    return result
                 result.update(status='completed',
                     report_url=f'/api/reports/{job_id}/editor',
                     handoff_url=f'/api/reports/{job_id}/handoff')
@@ -59,14 +64,39 @@ def report_path(root,job_id,kind):
     path=Path(root)/job_id/('attempt-'+str(winner))/names[kind]
     return path if path.is_file() else None
 
+def adopt_captions(url,attempt_dir,job_dir):
+    """Keep fetched YouTube captions as the job's transcript unless a person already attached one."""
+    if any(Path(job_dir).glob('transcript.*')):
+        return
+    captions=fetch_captions(url,attempt_dir)
+    if captions is not None:
+        target=Path(job_dir)/'transcript.vtt'
+        target.write_bytes(captions.read_bytes())
+        target.chmod(0o600)
+
+
 def process(root, claim):
     job=claim['job_id'];directory=Path(root)/job
     payload=claim['payload']
     # Keep each attempt's outputs isolated; no retry may publish over a previous attempt.
     attempt_dir=directory/('attempt-'+str(claim['attempt']))
     attempt_dir.mkdir(mode=0o700,exist_ok=False)
+    if claim['kind'] in ('learn_url', 'learn_upload'):
+        from learning_brain import process_source
+        return process_source(root, claim, attempt_dir)
     if claim['kind']=='url':
-        meta,path=retrieve(payload['url'],attempt_dir)
+        try:
+            meta,path=retrieve(payload['url'],attempt_dir)
+        except Exception as exc:
+            # A blocked link is not retried: record the ladder and finish the attempt.
+            from fallback import build_record
+            from link_intake import parse_link
+            try:platform=parse_link(payload['url'])['platform']
+            except ValueError:platform='unknown'
+            save_job(attempt_dir,build_record(job,platform,payload['url'],str(exc),
+                                              payload.get('editorial_context') or None))
+            return {'attempt':claim['attempt'],'needs_fallback':True}
+        adopt_captions(payload['url'],attempt_dir,directory)
     else:
         filename=payload['filename']
         if filename not in ('upload.mp4','upload.mov'):
@@ -75,6 +105,8 @@ def process(root, claim):
         if not path.is_file() or path.is_symlink():
             raise FileNotFoundError('Durable upload is missing')
         meta={'title':payload['title']}
+    if isinstance(payload.get('editorial_context'), dict):
+        meta['editorial_context'] = payload['editorial_context']
     technical=inspect(path,attempt_dir/'evidence')
     try:
         timeline=compile_video_evidence(path,attempt_dir/'vindex')
