@@ -15,31 +15,40 @@ A local-first operating system for turning goals into safe, reviewable execution
 
 The design follows THINK BROADLY, ACT NARROWLY. AI-OS can prepare work autonomously, but records human decisions and keeps consequential actions behind explicit gates.
 
-## Quick start
+## Quick start: isolated core demo
 
-Requires Python 3.11+; no third-party packages are required.
+Requires Python 3.11+. The core package has no third-party runtime dependencies.
 
 ```sh
-python3 -m ai_os init
-python3 -m ai_os bootstrap
-python3 -m ai_os project add "Supervizor" --priority 1 --goal "Supervise paper crypto strategies safely"
-python3 -m ai_os task add <project-id> "Run the paper-trading health check" --priority 1
-python3 -m ai_os plan
-python3 -m ai_os run
-python3 -m ai_os run --accept-task <recommended-task-id>
-python3 -m ai_os model-plan  # optional; uses ~/.ai-os/model.json or provider environment variables
-python3 -m ai_os daily-cycle --save  # local brief + Ollama suggestion for review
-python3 -m ai_os proposals          # list pending proposals
-python3 -m ai_os provider-status    # check Ollama without generating text
-python3 -m ai_os supervizor-status  # read Supervizor's local operator snapshot (read-only)
-python3 -m ai_os schedule cycle-install  # separate 3:05 PM local model cycle
-python3 -m ai_os schedule trading-install  # 8:30 AM local paper-trading operator
-python3 -m ai_os proposal accept <proposal-id>
-python3 -m ai_os proposal reject <proposal-id>
-python3 -m unittest discover -s tests -v
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+export AI_OS_DB="$(mktemp -d)/ai_os.db"
+.venv/bin/ai-os init
+.venv/bin/ai-os project add "Portfolio Demo" --priority 1 --goal "Demonstrate safe planning"
+.venv/bin/ai-os projects
 ```
 
-Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Optional model settings are read from `~/.ai-os/model.json`; environment variables override that file. Local Ollama needs only `base_url` and `model` (no API key). Install with `python3 -m pip install -e .`; `python3 -m ai_os` works even when your Python scripts directory is not on PATH.
+Copy the `id` of the created project into the next command (replace `PROJECT_ID` with the actual identifier):
+
+```sh
+.venv/bin/ai-os task add PROJECT_ID "Review a task" --priority 1
+.venv/bin/ai-os plan
+.venv/bin/ai-os run
+```
+
+The default `run` only prepares a plan. Copy the recommended task's `task_id` into the following command:
+
+```sh
+.venv/bin/ai-os run --accept-task TASK_ID
+.venv/bin/ai-os tasks
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+These shell commands target macOS/Linux. Windows users must adapt virtual environment paths and temporary-directory syntax. The demonstration was verified with an isolated SQLite database; it performs **no external action**.
+
+For advanced commands (optional model providers, local reports, paper-trading integrations, and scheduling), see the documentation. These integrations are **not** part of the verified core demo.
+
+Database defaults to `~/.ai-os/ai_os.db` when `AI_OS_DB` is unset. Optional model settings can be read from `~/.ai-os/model.json`, with environment overrides. Local Ollama can use a base URL and model without an API key.
 
 ## Safety model
 
