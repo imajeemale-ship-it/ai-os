@@ -33,3 +33,11 @@ A limited tracked-file regex check for several credential token formats outside 
 ## Release decision
 
 **HOLD** root licensing and final release pending the above. Continue reversible documentation, tests, and review in the draft PR.
+
+## Automated history and privacy triage (2026-11-01)
+
+- Inspected **290 tracked paths** and enumerated **1,321 Git objects** across all locally available refs, including **586 blobs** (none exceeded 2 MB).
+- Scanned all enumerated blobs for selected high-confidence private-key headers and AWS/GitHub/Slack token formats: **zero matches**. This is a narrow pattern-based check, **not** a comprehensive secret scanner or manual audit.
+- Current tracked-file heuristics flagged two test files containing email-shaped strings, 17 files containing IPv4-shaped strings, and one shell script containing a token assignment. The token assignment interpolates a shell environment variable rather than containing an obvious hard-coded token.
+- The signal-watch installation script includes an absolute local filesystem path. Review/redact machine-specific paths before presenting the repository as polished public source.
+- **No credential values were printed or copied into this document.** False negatives remain possible; do not claim the repository is security-cleared.
