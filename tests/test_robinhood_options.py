@@ -85,6 +85,22 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
                 handle.write(json.dumps({"record_type": "paper_position_monitor", "status": "closed"}) + "\n")
             self.assertIsNone(latest_open_position(ledger))
 
+    def test_rejects_expired_live_contract_even_with_stale_dte(self):
+        quote = fixture_quote()
+        expired = OptionQuote(**{**quote.__dict__, "source": "robinhood_mcp:test", "expiration": "2020-10-30", "dte": 16})
+        reasons = validate_entry(expired, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertIn("contract_expired", reasons)
+
+    def test_historical_fixture_remains_valid_for_regression(self):
+        reasons = validate_entry(fixture_quote(), PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertNotIn("contract_expired", reasons)
+
+    def test_rejects_invalid_live_expiration(self):
+        quote = fixture_quote()
+        invalid = OptionQuote(**{**quote.__dict__, "source": "alpaca_options_chain:test", "expiration": "not-a-date"})
+        reasons = validate_entry(invalid, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertIn("expiration_missing_or_invalid", reasons)
+
     def test_cycle_records_rejected_opportunity(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = Path(directory) / "paper_trades.jsonl"
@@ -199,10 +215,11 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
         self.assertTrue(context["established_uptrend"])
 
     def test_alpaca_adapter_selects_policy_passing_call(self):
+        future_expiration = (datetime.now(timezone.utc).date() + timedelta(days=16)).isoformat()
         payload = {
             "snapshots": {
                 "SPY261030C00590000": {
-                    "details": {"type": "call", "strike_price": 590, "expiration_date": "2026-10-30", "dte": 16},
+                    "details": {"type": "call", "strike_price": 590, "expiration_date": future_expiration, "dte": 16},
                     "latestQuote": {"bp": 1.42, "ap": 1.5, "t": datetime.now(timezone.utc).isoformat()},
                     "latestTrade": {"p": 1.46},
                     "greeks": {"delta": 0.36, "gamma": 0.041, "theta": -0.092, "vega": 0.184},

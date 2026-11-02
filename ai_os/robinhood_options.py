@@ -188,6 +188,15 @@ def validate_entry(quote: OptionQuote, account: PaperAccount, policy: PaperPolic
         reasons.append("premium_below_target")
     if not policy.min_dte <= quote.dte <= policy.max_dte:
         reasons.append("dte_outside_primary_window")
+    if quote.source.startswith(("alpaca_", "robinhood_")):
+        try:
+            expiration_date = datetime.fromisoformat(str(quote.expiration).replace("Z", "+00:00")).date()
+        except ValueError:
+            expiration_date = None
+        if expiration_date is None:
+            reasons.append("expiration_missing_or_invalid")
+        elif expiration_date < datetime.now(EASTERN).date():
+            reasons.append("contract_expired")
     if quote.ask <= 0 or quote.bid <= 0 or quote.bid > quote.ask:
         reasons.append("invalid_quote")
     spread_pct = quote.spread / quote.mid if quote.mid else 1.0
