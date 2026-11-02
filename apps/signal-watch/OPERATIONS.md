@@ -5,7 +5,7 @@
 This runs continuously on Davids-Air-2. Keep the Mac awake and connected to the internet, or later move the monitor to an always-on host with a secure copy of the authorized Telegram session.
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 python3 apps/signal-watch/watch.py \
   --chat "Predictūm X — The Most Powerful Indicator" \
   --chat "Wallstreet Queen Official®" \
@@ -49,7 +49,7 @@ Keep the bot token private. Restart Signal Watch after configuring it. Verify wi
 Install or refresh the LaunchAgent from the AI-OS repo:
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 apps/signal-watch/scripts/install-launch-agent.sh
 ```
 
@@ -58,14 +58,14 @@ The installer prompts for the Telegram bot token and chat ID, stores them in `~/
 Check status and recent logs:
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 apps/signal-watch/scripts/status-launch-agent.sh
 ```
 
 Stop and remove the LaunchAgent:
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 apps/signal-watch/scripts/uninstall-launch-agent.sh
 ```
 
@@ -154,14 +154,14 @@ Existing files are preserved unless `--force` is supplied.
 Install or refresh the scheduled paper trader:
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 apps/signal-watch/scripts/install-paper-trader-agent.sh
 ```
 
 Check the scheduled paper trader:
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 apps/signal-watch/scripts/status-paper-trader-agent.sh
 ```
 
@@ -170,7 +170,7 @@ The job wakes every 5 minutes through `com.ai-os.signal-watch-paper-trader`, run
 Export the channel performance report from the same database:
 
 ```sh
-cd /Users/unagidon/Documents/ai-os
+cd $HOME/Documents/ai-os
 python3 apps/signal-watch/scripts/report_paper_trading.py
 ```
 
