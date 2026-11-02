@@ -74,7 +74,7 @@ class KnowledgeTests(unittest.TestCase):
    with self.assertRaises(ValueError):kb.decide(t,'P-NOPE','approve')
    with self.assertRaises(ValueError):kb.decide(t,'P-YT-01','maybe')
  def test_every_principle_has_a_source_and_confidence(self):
-  for p in kb.PRINCIPLES:self.assertTrue(p['source'] and p['confidence'] in('high','low') and p['categories'])
+  for p in kb.PRINCIPLES:self.assertTrue(p['source'] and p['confidence'] in('high','medium','low') and p['categories'])
 
 class BlendTests(unittest.TestCase):
  def run_score(self,judge_out,trend,principles=None):
