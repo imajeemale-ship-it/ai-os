@@ -40,7 +40,7 @@ On Windows, use the corresponding virtual environment activation and executable 
 
 ## Unresolved gates
 
-- Full repository **and history** secrets/personal-data audit; a filename check alone is not sufficient.
+- Maintained secret scanning passed for the tracked snapshot and available-ref history; see [scan evidence](SECRET_SCAN_V0_1.md). Comprehensive personal-data/content clearance is not implied; known operational metadata remains documented.
 - Licensing and third-party provenance review; no root `LICENSE` was found. Vendored Vindex has its own license, which does not establish licensing for the whole repository.
 - Independent AI review is complete with both findings fixed and rechecked; see [review report](INDEPENDENT_AI_REVIEW_V0_1.md). This is not comprehensive security sign-off. CI exists at `.github/workflows/core-tests.yml`; Ubuntu Python 3.11 and 3.14 passed tests, installation, and CLI smoke checks in run [41364368386](https://github.com/imajeemale-ship-it/ai-os/actions/runs/41364368386) for `6ea17650e280718a4cc7cd5b90b7aaa612142038`.
 - MVI end-to-end workflow, deployment, and security checks are separate from the 112 root tests.

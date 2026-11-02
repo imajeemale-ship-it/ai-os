@@ -22,7 +22,7 @@
 - The demonstrated control plane does not itself execute external actions or complete tasks autonomously.
 - MVI video analysis and external integrations have not been validated as part of the core release.
 - No root project license has been confirmed. The Vindex vendored component has a separate MIT license.
-- Expanded pattern scanning of all 610 enumerated history blobs found no matches; comprehensive secrets/privacy clearance remains outstanding.
+- Expanded history-pattern checks and pinned Gitleaks scans of available history/tracked files found no secrets; comprehensive privacy/content clearance is not implied.
 - Vindex local import patches are attributed in Git but have known missing-dependency error handling gaps; optional-stage execution is unverified.
 
 See `docs/RELEASE_VERIFICATION.md` and `docs/ARCHITECTURE_V0_1.md`.

@@ -59,3 +59,7 @@ Replaced the personal macOS home prefix with `$HOME` in signal-watch operations 
 ## Owner-reported development origin
 
 KD stated in this release review: “there is no original code. i started everything on chat gpt”. Record this as **owner-reported ChatGPT-assisted project development**, rather than independently verified authorship. It answers the immediate project-origin question; it is not a file-by-file assurance that generated outputs contain no third-party material, nor a legal determination of copyright or licensing rights. No employer/client contribution was identified by the owner in this exchange. Existing Vindex upstream attribution and MIT notice remain applicable. No root license was selected or granted.
+
+## Maintained scanner follow-up
+
+Gitleaks 8.30.1 was obtained from the official release, verified against its published asset SHA-256, and executed temporarily without a system-wide installation. Available-ref history and the tracked snapshot at `38f78fc` both returned zero findings and exit code 0. See `SECRET_SCAN_V0_1.md` for exact scope, options, sizes, counts, and limits. This supersedes the earlier statement that no maintained scanner had run; earlier bounded scan results remain historical evidence. Known operational metadata and licensing decisions are not cleared by a secret scanner.
