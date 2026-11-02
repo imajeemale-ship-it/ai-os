@@ -95,11 +95,12 @@ def form_for_duration(seconds):
     return 'shorts' if seconds is not None and seconds <= SHORTS_MAX_SECONDS else 'long'
 
 
-def fetch_youtube(api_key, *, region='US', category=GAMING_CATEGORY, query=None, max_results=25, days=30, now=None,
+def fetch_youtube(api_key, *, region='US', category=GAMING_CATEGORY, query=None, max_results=25, days=None, now=None,
                   form=None, get=_get_json):
     if not api_key:
         raise TrendError('YOUTUBE_API_KEY is not set')
     now = time.time() if now is None else now
+    days = int(days or os.environ.get('MVI_TREND_DAYS', '30'))
     max_results = max(5, min(int(max_results), 50))
     if form is not None and form not in FORMS:
         raise TrendError('form must be shorts or long')
@@ -107,8 +108,8 @@ def fetch_youtube(api_key, *, region='US', category=GAMING_CATEGORY, query=None,
         raise TrendError('a format-specific snapshot needs a search query (MVI_TREND_QUERY)')
     if query:
         after = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - days * 86400))
-        # YouTube search buckets: short <4 min, medium 4-20 min, long >20 min.
-        buckets = {'shorts': ['short'], 'long': ['medium', 'long']}.get(form, [None])
+        # YouTube search buckets: short <4 min, medium 4-20 min, long >20 min. Long-form uses medium only (edited videos).
+        buckets = {'shorts': ['short'], 'long': ['medium']}.get(form, [None])
         ids = []
         for bucket in buckets:
             params = {'part': 'snippet', 'type': 'video', 'q': query, 'order': 'viewCount', 'publishedAfter': after,
@@ -117,14 +118,15 @@ def fetch_youtube(api_key, *, region='US', category=GAMING_CATEGORY, query=None,
                 params['videoDuration'] = bucket
             found = get('search', params, api_key)
             ids += [i['id']['videoId'] for i in found.get('items', []) if i.get('id', {}).get('videoId') and i['id']['videoId'] not in ids]
-        data = get('videos', {'part': 'snippet,contentDetails,statistics', 'id': ','.join(ids)}, api_key) if ids else {'items': []}
+        data = get('videos', {'part': 'snippet,contentDetails,statistics,liveStreamingDetails', 'id': ','.join(ids)}, api_key) if ids else {'items': []}
         scope = f'search "{query}" in category {category}, last {days} days, by views' + (
             {'shorts': ' (Shorts only, 180s or less)', 'long': ' (long-form only, over 180s)'}[form] if form else '')
     else:
         data = get('videos', {'part': 'snippet,contentDetails,statistics', 'chart': 'mostPopular', 'regionCode': region,
                               'videoCategoryId': category, 'maxResults': max_results}, api_key)
         scope = f'most popular, category {category}, region {region}'
-    rows = _summarize(data.get('items', []))
+    # Past livestreams carry liveStreamingDetails; they are not comparable to an edited video.
+    rows = _summarize([i for i in data.get('items', []) if not i.get('liveStreamingDetails')])
     if form == 'shorts':
         rows = [r for r in rows if r['duration_seconds'] <= SHORTS_MAX_SECONDS]
     elif form == 'long':
@@ -136,7 +138,7 @@ def fetch_youtube(api_key, *, region='US', category=GAMING_CATEGORY, query=None,
 
 
 def _cache_path(root, region, category, query, form=None):
-    tag = hashlib.sha256(f'{region}|{category}|{query or ""}|{form or ""}'.encode()).hexdigest()[:12]
+    tag = hashlib.sha256(f'{region}|{category}|{query or ""}|{form or ""}|{os.environ.get("MVI_TREND_DAYS", "30")}'.encode()).hexdigest()[:12]
     return Path(root) / 'private' / 'trends' / f'youtube_{tag}.json'
 
 
