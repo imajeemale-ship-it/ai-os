@@ -43,3 +43,7 @@ Database defaults to `~/.ai-os/ai_os.db`. Set `AI_OS_DB` to use another path. Op
 Actions default to preparation. `send_message`, `spend_money`, `trade`, `publish`, `delete_data`, and `deploy` require an approved, exact-scope record. The current loop does not connect to any external execution system.
 
 Install the default 3:00 PM local report with `python3 -m ai_os schedule install`; check it with `python3 -m ai_os schedule status`. The optional daily model cycle also includes a compact Supervizor snapshot. The paper-trading operator can be installed with `python3 -m ai_os schedule trading-install`; check it with `python3 -m ai_os schedule trading-status`. By default, `supervizor-status` reads `~/Desktop/ai-agent-test/ft_userdata/supervizor_reports/latest_daily_operator_run.json`; pass `--report PATH` to read a different report. It never starts Supervizor or modifies its files. See [the execution loop design](docs/EXECUTION_LOOP.md) and [the local daily brief](docs/DAILY_BRIEF.md).
+
+## Robbinhoods Agent
+
+The repository also contains [Robbinhoods Agent](docs/ROBBINHOODS_AGENT_PORTFOLIO.md), a cloud-hosted options research and paper-trading system. It uses authenticated Robinhood market data, deterministic contract and risk validation, durable paper records, and Telegram reporting. It is paper-only today, with a controlled pathway toward authorized live trading after repeated paper validation, independent risk review, and explicit owner approval. Live orders, margin, uncovered option selling, and exercise remain disabled.
