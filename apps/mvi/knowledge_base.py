@@ -1,6 +1,6 @@
 """Seed principles of 'what is known to work', each with a source. Nothing influences a score until the owner approves it.
 
-Official YouTube guidance is high confidence. Creator-video lessons come from single speakers
+Official YouTube Help guidance is high confidence; a secondhand report of a YouTube official is medium. Creator-video lessons come from single speakers
 (auto-captions, reviewed by hand) and are low confidence: hypotheses to test against David's judgment.
 """
 import json
@@ -9,6 +9,9 @@ import tempfile
 from pathlib import Path
 
 YT_RETENTION = 'https://support.google.com/youtube/answer/9314415 (YouTube Help, retrieved 2026-11-01)'
+YT_TITLES = 'https://support.google.com/youtube/answer/12340300 (YouTube Help, Thumbnail & title tips, retrieved 2026-11-02)'
+YT_CTR = 'https://support.google.com/youtube/answer/7628154 (YouTube Help, Impressions & click-through-rate FAQs, retrieved 2026-11-02)'
+SEJ = 'https://beta.searchenginejournal.com/how-youtubes-recommendation-system-works-in-2025/538379/ (Search Engine Journal, 2025-01-27, reporting an interview with YouTube\'s Todd Beaupre; secondhand)'
 JY = 'Jon Youshaei, YouTube Masterclass 2025, https://youtu.be/h-8C3bntQRo (auto-captions; see research/002_YOUTUBE_MASTERCLASS.md)'
 JT = 'Jake Trinder, https://www.youtube.com/watch?v=Dx-c19qXdxM (auto-captions; see research/jake_trinder/EDITORIAL_DOCTRINE.md)'
 
@@ -19,6 +22,10 @@ PRINCIPLES = [
      'text': 'Audience size normally shrinks over a video, so compelling content that appears late is a signal to move it earlier.'},
     {'id': 'P-YT-03', 'confidence': 'high', 'source': YT_RETENTION, 'categories': ['pacing_retention'],
      'text': 'A dip in retention means viewers skipped or left at that point; a spike means a segment was more engaging or unclear enough to be rewatched. Both are worth reviewing.'},
+    {'id': 'P-YT-04', 'confidence': 'high', 'source': YT_TITLES + '; ' + YT_CTR, 'categories': ['opening_hook', 'ending_payoff'],
+     'text': 'The video must deliver what its title and thumbnail promise. YouTube says misleading packaging makes viewers stop watching, which hurts discoverability, and that clickbait tends to have low average view duration and is less likely to be recommended.'},
+    {'id': 'P-YT-05', 'confidence': 'medium', 'source': SEJ, 'categories': ['storytelling_engagement', 'ending_payoff'],
+     'text': 'YouTube says it also uses likes, dislikes and viewer surveys to gauge satisfaction, not only what people watch. Keeping viewers by misleading them does not make a video good; reward videos viewers would be glad they watched.'},
     {'id': 'P-JY-01', 'confidence': 'low', 'source': JY, 'categories': ['opening_hook'],
      'text': 'Strong intros often show the result up front, address the viewer\'s likely objection, and get to the point immediately (R.A.I.N.Y.: result, address objection, instant, now, you).'},
     {'id': 'P-JY-02', 'confidence': 'low', 'source': JY, 'categories': ['opening_hook', 'visual_polish'],
