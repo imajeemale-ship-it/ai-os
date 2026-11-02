@@ -126,3 +126,42 @@ class KnowledgeEndpointTests(unittest.TestCase):
     with patch.dict(os.environ,{'YOUTUBE_API_KEY':''}):self.assertEqual(req('GET','/api/trends/youtube')[0],403)
    finally:httpd.shutdown();httpd.server_close()
 if __name__=='__main__':unittest.main()
+
+class GameTests(unittest.TestCase):
+ def test_registry_and_page_agree(self):
+  import games
+  html=(Path(__file__).parent/'brain_studio.html').read_text()
+  for k in games.GAMES:self.assertIn('<option value="%s">'%k,html)
+  self.assertEqual(games.query_for('cod'),'call of duty');self.assertIsNone(games.query_for('other'))
+  self.assertEqual(games.query_for(None),os.environ.get('MVI_TREND_QUERY','gta online'))
+ def test_context_keeps_only_known_games(self):
+  self.assertEqual(server.editorial_context({'game':'cod'}),{'game':'cod'})
+  self.assertEqual(server.editorial_context({'game':'<script>','audience':'x'}),{'audience':'x'})
+ def test_unknown_game_and_no_query_are_refused_by_trends_endpoint(self):
+  import games
+  with tempfile.TemporaryDirectory() as t,patch.object(server,'ROOT',Path(t)),patch.dict(os.environ,{'MVI_REQUIRE_AUTH':'1','MVI_API_TOKEN':'tok'}):
+   httpd=ThreadingHTTPServer(('127.0.0.1',0),server.Handler);Thread(target=httpd.serve_forever,daemon=True).start()
+   def get(path):
+    c=http.client.HTTPConnection('127.0.0.1',httpd.server_address[1]);c.request('GET',path,headers={'Authorization':'Bearer tok'});r=c.getresponse();return r.status,json.loads(r.read())
+   self.assertEqual(get('/api/trends/youtube?game=minecraft')[0],400)
+   self.assertEqual(get('/api/trends/youtube?game=other')[0],403)
+   self.assertEqual(get('/api/games')[1]['games'][0]['key'],'gta')
+   httpd.shutdown()
+
+class GameScoringPathTests(unittest.TestCase):
+ def run_job(self,game,duration=45):
+  seen={}
+  def fake_get(root,query=None,form=None,**k):seen.update(query=query,form=form);return {'retrieved_at':1,'stats':{'count':8},'scope':'x'}
+  def fake_score(*a,**k):seen['trends']=k.get('trends');return {'ok':True}
+  info={'video':'v','technical':{'duration_seconds':duration},'timeline':None,'state':{'metadata':{'editorial_context':({'game':game} if game else {})}}}
+  with tempfile.TemporaryDirectory() as t,patch.object(server,'ROOT',Path(t)),patch.object(server,'_job_or_none',lambda j:info),\
+       patch.object(server,'get_judge',lambda:object()),patch.object(server.trendlib,'get',fake_get),patch.object(server.scoring,'score_video',fake_score),\
+       patch.object(server.knowledge_base,'approved',lambda r:[]):
+   (Path(t)/('a'*32)).mkdir();server.run_score_job('a'*32,1.0,['youtube_long']);seen['status']=json.loads((Path(t)/('a'*32)/'score_status.json').read_text())['status']
+  return seen
+ def test_cod_uses_cod_query_and_format(self):
+  s=self.run_job('cod',45);self.assertEqual((s['query'],s['form'],s['status']),('call of duty','shorts','done'))
+  self.assertEqual(self.run_job('cod',600)['form'],'long')
+ def test_other_game_gets_no_trends_and_unset_keeps_default(self):
+  s=self.run_job('other');self.assertNotIn('query',s);self.assertIsNone(s['trends'])
+  self.assertEqual(self.run_job(None)['query'],os.environ.get('MVI_TREND_QUERY','gta online'))

@@ -198,6 +198,10 @@ footer .footer-note{max-width:600px}
         <input id="analysis-file" type="file" accept=".mp4,.mov,video/mp4,video/quicktime">
       </div>
       <div style="height:12px"></div>
+      <div class="contextfields" style="margin-bottom:10px">
+        <label for="game">Which game is this video about?</label>
+        <select id="game"><option value="gta">GTA Online</option><option value="cod">Call of Duty</option><option value="other">Other / not listed (no trend score)</option></select>
+      </div>
       <button class="primary" id="analyze-upload" style="width:100%" type="button">Analyze selected video</button>
       <details class="context">
         <summary>Add creative direction (recommended)</summary>
@@ -261,7 +265,8 @@ footer .footer-note{max-width:600px}
   <strong>What the scorer treats as known to work</strong>
   <div class="state" style="margin:6px 0">Each principle has a source. Nothing affects a score until you approve it. Official YouTube guidance is high confidence; creator-video lessons are low confidence, so treat them as ideas to test.</div>
   <button class="smallbutton" id="principles-load" type="button">Load principles</button>
- <button class="smallbutton" id="trends-load" data-form="shorts" type="button">Show Shorts trends</button>
+ <select id="trend-game" aria-label="Game for trends"><option value="gta">GTA Online</option><option value="cod">Call of Duty</option></select>
+  <button class="smallbutton" id="trends-load" data-form="shorts" type="button">Show Shorts trends</button>
   <button class="smallbutton" id="trends-load-long" data-form="long" type="button">Show long-form trends</button>
   <pre id="trends-out" style="white-space:pre-wrap;font-size:12px;margin:8px 0 0"></pre>
   <div id="principles-list" style="display:grid;gap:8px;margin-top:10px"></div>
@@ -305,7 +310,7 @@ $('verify').addEventListener('click',async ()=>{
   }catch(e){sessionStorage.removeItem(TOKEN_KEY);$('authstate').textContent='Token rejected';$('authstate').style.color='#ffaaaa'}
 });
 function context(){
-  return {audience:$('audience').value.trim(),viewer_promise:$('promise').value.trim(),
+  return {game:$('game').value,audience:$('audience').value.trim(),viewer_promise:$('promise').value.trim(),
     viewer_outcome:$('outcome').value.trim(),intended_style:$('style').value.trim()};
 }
 function attachDrop(lane) {
@@ -531,7 +536,7 @@ async function loadPrinciples(){
 $('principles-load').addEventListener('click',loadPrinciples);
 async function showTrends(form){
   const out=$('trends-out');out.textContent='Loading…';
-  try{const t=await api('/api/trends/youtube?form='+form);const s=t.stats;
+  try{const t=await api('/api/trends/youtube?form='+form+'&game='+encodeURIComponent($('trend-game').value));const s=t.stats;
     out.textContent='Snapshot '+new Date(t.retrieved_at*1000).toLocaleString()+' · '+t.scope+'\nVideos sampled: '+s.count+' · median length: '+Math.round(s.median_duration_seconds/60*10)/10+' min · median views: '+s.median_views+
       '\nLength mix: under 1 min '+s.duration_share_under_60s+', 1-5 min '+s.duration_share_1_to_5min+', 5-15 min '+s.duration_share_5_to_15min+', over 15 min '+s.duration_share_over_15min+
       '\nTitles: '+Math.round(s.share_titles_with_number*100)+'% have a number, '+Math.round(s.share_titles_with_question*100)+'% a question, '+Math.round(s.share_titles_with_allcaps_word*100)+'% an ALL-CAPS word · common words: '+s.top_title_words.join(', ')+
