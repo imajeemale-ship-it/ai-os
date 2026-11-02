@@ -378,7 +378,12 @@ def notify_paper_event(record: dict[str, Any]) -> bool:
         message = f"ROBINHOOD PAPER AGENT ERROR: {record.get('error')}"
     else:
         reasons = ", ".join(record.get("entry_rejections") or ["unknown_reason"])
-        message = f"{basket}NO PAPER TRADE: {reasons}. The agent stayed in cash."
+        health = record.get("credential_health") or {}
+        blocked = record.get("mode") == "paper_only_real_data_blocked"
+        suffix = " Data status: " + ", ".join(
+            f"{name}={health.get(name, 'unknown')}" for name in ("robinhood_mcp", "alpaca")
+        ) if health and (blocked or "missing" in health.values()) else ""
+        message = f"{basket}NO PAPER TRADE: {reasons}. The agent stayed in cash.{suffix}"
     return send_telegram_alert(message)
 
 
