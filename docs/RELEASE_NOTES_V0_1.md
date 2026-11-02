@@ -8,7 +8,7 @@
 - Deterministic ranking of ready tasks.
 - Dry-run planning without task mutation.
 - Explicit task acceptance changes the recommended task to `in_progress`.
-- Approval boundaries for consequential action categories.
+- Local approval registry for consequential action categories; enforcement depends on callers using it.
 
 ## Verification
 

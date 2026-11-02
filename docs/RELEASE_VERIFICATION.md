@@ -42,9 +42,9 @@ On Windows, use the corresponding virtual environment activation and executable 
 
 - Full repository **and history** secrets/personal-data audit; a filename check alone is not sufficient.
 - Licensing and third-party provenance review; no root `LICENSE` was found. Vendored Vindex has its own license, which does not establish licensing for the whole repository.
-- Independent reviewer sign-off remains outstanding. CI exists at `.github/workflows/core-tests.yml`; Ubuntu Python 3.11 and 3.14 passed tests, installation, and CLI smoke checks in run [41364368386](https://github.com/imajeemale-ship-it/ai-os/actions/runs/41364368386) for `6ea17650e280718a4cc7cd5b90b7aaa612142038`.
+- Independent AI review is complete with both findings fixed and rechecked; see [review report](INDEPENDENT_AI_REVIEW_V0_1.md). This is not comprehensive security sign-off. CI exists at `.github/workflows/core-tests.yml`; Ubuntu Python 3.11 and 3.14 passed tests, installation, and CLI smoke checks in run [41364368386](https://github.com/imajeemale-ship-it/ai-os/actions/runs/41364368386) for `6ea17650e280718a4cc7cd5b90b7aaa612142038`.
 - MVI end-to-end workflow, deployment, and security checks are separate from the 112 root tests.
-- README, architecture, release notes, and evidence pages have been reviewed for scope consistency; independent PR review remains required.
+- README, architecture, release notes, and evidence pages have been reviewed for scope consistency; independent AI review and targeted fix recheck are documented in the review report.
 
 Do not merge or tag a public release before evaluating these gates.
 
@@ -56,7 +56,13 @@ At release branch commit `6ea17650e280718a4cc7cd5b90b7aaa612142038`, reran the r
 
 ## Installed CLI regression verifier
 
-After installation, run `python tools/verify_core_cli.py`. The verifier resolves the installed `ai-os` executable and runs it outside the source checkout with a disposable database. It checks nonempty planning, dry-run immutability, rejection of nonrecommended task acceptance without mutation, and explicit acceptance of the recommended task. It does not call model providers, trading commands, schedulers, or messaging integrations. The temporary database is removed after completion. CI runs this check on both Python versions in addition to the root suite.
+After following the repository-root `.venv` installation above, run:
+
+```sh
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -O tools/verify_core_cli.py
+```
+
+This explicitly pairs the virtual-environment interpreter with its installed console script. Using the virtual-environment Python alone does not add `.venv/bin` to `PATH`. The verifier resolves the installed `ai-os` executable and runs it outside the source checkout with a disposable database. It checks nonempty planning, dry-run immutability, rejection of nonrecommended task acceptance without mutation, and explicit acceptance of the recommended task. It does not call model providers, trading commands, schedulers, or messaging integrations. The temporary database is removed after completion. CI runs this check on both Python versions in addition to the root suite.
 
 Local Python 3.11 verification passed on 2026-11-01 using the existing isolated virtual environment. This supplements the historical manual lifecycle evidence above.
 
