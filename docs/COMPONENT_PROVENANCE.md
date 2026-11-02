@@ -29,7 +29,7 @@ Demonstrate the core `ai_os/` package and its 112 root tests as the flagship. Tr
 
 ## Open decisions
 
-- Confirm original author and contributor rights for `ai_os/` and nonvendored applications.
-- Review upstream Vindex source and any modifications.
+- Owner reports the project began through ChatGPT-assisted development; recorded in `OWNERSHIP_LICENSING_REVIEW.md`. File-level provenance and rights remain subject to review.
+- Vindex upstream comparison and local-patch static review completed; retain MIT notice and resolve the documented optional-stage handling gaps before claiming execution support.
 - Audit sensitive history beyond narrow regex patterns.
 - Choose final root license only after review and explicit owner approval.

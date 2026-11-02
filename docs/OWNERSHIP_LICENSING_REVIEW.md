@@ -55,3 +55,7 @@ The Vindex modifications have recorded Git attribution and known missing-depende
 ## Follow-up privacy cleanup
 
 Replaced the personal macOS home prefix with `$HOME` in signal-watch operations and M3 workflow documentation. Existing operational installers and service files remain unchanged. This removes those explicit personal paths from the current documentation; it does not remove their historical versions or resolve installer portability. Git commit metadata can also contain personal author/committer identity and hostnames; no history rewrite or global Git identity change was performed.
+
+## Owner-reported development origin
+
+KD stated in this release review: “there is no original code. i started everything on chat gpt”. Record this as **owner-reported ChatGPT-assisted project development**, rather than independently verified authorship. It answers the immediate project-origin question; it is not a file-by-file assurance that generated outputs contain no third-party material, nor a legal determination of copyright or licensing rights. No employer/client contribution was identified by the owner in this exchange. Existing Vindex upstream attribution and MIT notice remain applicable. No root license was selected or granted.
