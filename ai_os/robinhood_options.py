@@ -28,13 +28,25 @@ EASTERN = ZoneInfo("America/New_York")
 def credential_health() -> dict[str, Any]:
     """Return sanitized read-only market-data credential availability."""
     robinhood_token = bool(os.environ.get("ROBINHOOD_MCP_ACCESS_TOKEN"))
+    codex_credentials = Path.home() / ".codex" / ".credentials.json"
+    robinhood_codex = False
+    if codex_credentials.exists():
+        try:
+            saved = json.loads(codex_credentials.read_text(encoding="utf-8"))
+            robinhood_codex = any(
+                item.get("server_name") == "robinhood-trading" and item.get("access_token")
+                for item in saved.values()
+                if isinstance(item, dict)
+            )
+        except (OSError, json.JSONDecodeError):
+            robinhood_codex = False
     alpaca_file = ALPACA_SECRET_FILE.exists()
     alpaca_env = bool(
         (os.environ.get("APCA_API_KEY_ID") or os.environ.get("ALPACA_API_KEY_ID"))
         and (os.environ.get("APCA_API_SECRET_KEY") or os.environ.get("ALPACA_API_SECRET_KEY"))
     )
     return {
-        "robinhood_mcp": "available" if robinhood_token else "missing",
+        "robinhood_mcp": "available" if robinhood_token or robinhood_codex else "missing",
         "alpaca": "available" if alpaca_file or alpaca_env else "missing",
         "live_trading_allowed": False,
         "secrets_exposed": False,
