@@ -29,6 +29,22 @@ class TrendTests(unittest.TestCase):
   calls.clear();trends.fetch_youtube('SECRET',query='gta online',get=get,now=1_000_000)
   self.assertEqual([c[0] for c in calls],['search','videos']);self.assertEqual(calls[0][1]['q'],'gta online')
   with self.assertRaises(trends.TrendError):trends.fetch_youtube('')
+ def test_form_split_filters_and_caches_separately(self):
+  self.assertEqual(trends.form_for_duration(45),'shorts');self.assertEqual(trends.form_for_duration(180),'shorts')
+  self.assertEqual(trends.form_for_duration(181),'long');self.assertEqual(trends.form_for_duration(None),'long')
+  calls=[]
+  def get(ep,params,key):
+   calls.append((ep,params))
+   return {'items':items(8)} if ep=='videos' else {'items':[{'id':{'videoId':'v1'}}]}
+  p=trends.fetch_youtube('K',query='gta',form='shorts',get=get,now=1_000_000)
+  self.assertEqual(calls[0][1]['videoDuration'],'short')
+  self.assertTrue(all(r['duration_seconds']<=180 for r in p['examples']));self.assertEqual(p['form'],'shorts')
+  calls.clear();p=trends.fetch_youtube('K',query='gta',form='long',get=get,now=1_000_000)
+  self.assertEqual([c[1].get('videoDuration') for c in calls if c[0]=='search'],['medium','long'])
+  self.assertTrue(all(r['duration_seconds']>180 for r in p['examples']))
+  with self.assertRaises(trends.TrendError):trends.fetch_youtube('K',form='shorts',get=get)
+  with self.assertRaises(trends.TrendError):trends.fetch_youtube('K',query='gta',form='bogus',get=get)
+  self.assertNotEqual(trends._cache_path('r','US','20','q','shorts'),trends._cache_path('r','US','20','q','long'))
  def test_error_text_never_contains_key(self):
   self.assertNotIn('SECRET',trends._clean_error('boom https://x?key=SECRET',  'SECRET'))
  def test_cache_ttl_and_no_key(self):
