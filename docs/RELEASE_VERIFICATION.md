@@ -59,3 +59,7 @@ At release branch commit `6ea17650e280718a4cc7cd5b90b7aaa612142038`, reran the r
 After installation, run `python tools/verify_core_cli.py`. The verifier resolves the installed `ai-os` executable and runs it outside the source checkout with a disposable database. It checks nonempty planning, dry-run immutability, rejection of nonrecommended task acceptance without mutation, and explicit acceptance of the recommended task. It does not call model providers, trading commands, schedulers, or messaging integrations. The temporary database is removed after completion. CI runs this check on both Python versions in addition to the root suite.
 
 Local Python 3.11 verification passed on 2026-11-01 using the existing isolated virtual environment. This supplements the historical manual lifecycle evidence above.
+
+## Verifier reliability follow-up
+
+The installed-CLI verifier now uses explicit checks that remain active under Python optimization. CI invokes it with `python -O tools/verify_core_cli.py`. Local verification passed in optimized mode, and a disposable fake CLI returning an incorrect recommended task was rejected with the expected failure. This checks that the verifier detects a bad result instead of merely printing success. No application behavior was changed.

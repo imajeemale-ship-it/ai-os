@@ -27,4 +27,4 @@ jobs:
       - name: Check package installation
         run: python -m pip install --no-deps .
       - name: Verify installed CLI lifecycle with disposable state
-        run: python tools/verify_core_cli.py
+        run: python -O tools/verify_core_cli.py

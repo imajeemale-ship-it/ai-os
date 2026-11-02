@@ -7,6 +7,11 @@ import subprocess
 import tempfile
 
 
+def check(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def main():
     executable = shutil.which("ai-os")
     if not executable:
@@ -28,19 +33,19 @@ def main():
         first = run("task", "add", project["id"], "Review first", "--priority", "1")
         second = run("task", "add", project["id"], "Review later", "--priority", "4")
         plan = run("plan")
-        assert plan["recommended_next_action"]["task_id"] == first["id"]
+        check(plan["recommended_next_action"]["task_id"] == first["id"], "Planner selected the wrong task")
         before = run("tasks")
-        assert all(task["status"] == "ready" for task in before)
+        check(all(task["status"] == "ready" for task in before), "New tasks must be ready")
         dry = run("run")
-        assert dry["accepted"] is False
-        assert run("tasks") == before, "Dry run mutated tasks"
+        check(dry["accepted"] is False, "Dry run accepted a task")
+        check(run("tasks") == before, "Dry run mutated tasks")
         run("run", "--accept-task", second["id"], expected=2)
-        assert run("tasks") == before, "Rejected acceptance mutated tasks"
+        check(run("tasks") == before, "Rejected acceptance mutated tasks")
         accepted = run("run", "--accept-task", first["id"])
-        assert accepted["accepted"] is True
+        check(accepted["accepted"] is True, "Explicit acceptance failed")
         states = {task["id"]: task["status"] for task in run("tasks")}
-        assert states[first["id"]] == "in_progress"
-        assert states[second["id"]] == "ready"
+        check(states[first["id"]] == "in_progress", "Accepted task was not started")
+        check(states[second["id"]] == "ready", "Other task state changed")
     print("PASS: installed CLI lifecycle, dry-run immutability, rejection, explicit acceptance")
 
 
