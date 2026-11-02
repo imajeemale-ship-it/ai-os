@@ -26,8 +26,5 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check package installation
         run: python -m pip install --no-deps .
-      - name: CLI smoke test
-        run: |
-          export AI_OS_DB="$RUNNER_TEMP/ai_os_ci.db"
-          python -m ai_os init
-          python -m ai_os plan
+      - name: Verify installed CLI lifecycle with disposable state
+        run: python tools/verify_core_cli.py

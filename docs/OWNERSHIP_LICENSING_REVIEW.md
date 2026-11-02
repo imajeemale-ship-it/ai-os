@@ -51,3 +51,7 @@ Current tree: 293 tracked files; no candidate `.env`, private-key, credential-na
 Static inspection of the core execution loop confirmed task acceptance only changes local task state. The optional provider adapter requires HTTPS except loopback HTTP, rejects credential-bearing URLs, disables redirects, and sends project/task text to the explicitly configured model endpoint. Users must treat that optional invocation as disclosure of task information. Telegram control and trading integrations were inspected as source only; no network calls, sends, trading actions, service changes, or production credential reads were performed by this audit.
 
 The Vindex modifications have recorded Git attribution and known missing-dependency handling defects; see `VINDEX_UPSTREAM_REVIEW.md`. Recorded commit authorship is not proof of ownership. Root license selection and confirmation of contributor rights still require owner judgment.
+
+## Follow-up privacy cleanup
+
+Replaced the personal macOS home prefix with `$HOME` in signal-watch operations and M3 workflow documentation. Existing operational installers and service files remain unchanged. This removes those explicit personal paths from the current documentation; it does not remove their historical versions or resolve installer portability. Git commit metadata can also contain personal author/committer identity and hostnames; no history rewrite or global Git identity change was performed.

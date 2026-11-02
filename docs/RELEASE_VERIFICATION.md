@@ -53,3 +53,9 @@ Do not merge or tag a public release before evaluating these gates.
 At release branch commit `6ea17650e280718a4cc7cd5b90b7aaa612142038`, reran the root suite on macOS: Python 3.11 passed 112 tests in 1.227s; Python 3.14 passed 112 in 1.169s. No production service was started or restarted. See [Vindex review](VINDEX_UPSTREAM_REVIEW.md) for the adjacent component's known limitations.
 
 `main` advanced separately to `b03a0b6` with an MVI merge during review. These local results describe the release branch, not all new MVI code on `main`. CI on the final PR revision must pass before merge consideration.
+
+## Installed CLI regression verifier
+
+After installation, run `python tools/verify_core_cli.py`. The verifier resolves the installed `ai-os` executable and runs it outside the source checkout with a disposable database. It checks nonempty planning, dry-run immutability, rejection of nonrecommended task acceptance without mutation, and explicit acceptance of the recommended task. It does not call model providers, trading commands, schedulers, or messaging integrations. The temporary database is removed after completion. CI runs this check on both Python versions in addition to the root suite.
+
+Local Python 3.11 verification passed on 2026-11-01 using the existing isolated virtual environment. This supplements the historical manual lifecycle evidence above.

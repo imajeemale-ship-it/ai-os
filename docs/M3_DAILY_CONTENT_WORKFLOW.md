@@ -47,7 +47,7 @@ python3 -m ai_os m3-sources --path ~/Downloads --path ~/Desktop
 Current strong source candidate:
 
 ```text
-/Users/unagidon/Downloads/Rico_vs_THE_WORLD_KD_Cut_2_COMPLETE.mp4
+$HOME/Downloads/Rico_vs_THE_WORLD_KD_Cut_2_COMPLETE.mp4
 ```
 
 ## Clip Planning
@@ -75,5 +75,5 @@ python3 -m ai_os m3-export /path/to/source.mp4 --start 59 --duration 20 --label 
 Current exported candidates are in:
 
 ```text
-/Users/unagidon/Desktop/M3_Exports
+$HOME/Desktop/M3_Exports
 ```
