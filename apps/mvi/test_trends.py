@@ -40,8 +40,11 @@ class TrendTests(unittest.TestCase):
   self.assertEqual(calls[0][1]['videoDuration'],'short')
   self.assertTrue(all(r['duration_seconds']<=180 for r in p['examples']));self.assertEqual(p['form'],'shorts')
   calls.clear();p=trends.fetch_youtube('K',query='gta',form='long',get=get,now=1_000_000)
-  self.assertEqual([c[1].get('videoDuration') for c in calls if c[0]=='search'],['medium','long'])
+  self.assertEqual([c[1].get('videoDuration') for c in calls if c[0]=='search'],['medium'])
   self.assertTrue(all(r['duration_seconds']>180 for r in p['examples']))
+  live=items(8);live[0]['liveStreamingDetails']={'actualStartTime':'x'}
+  p=trends.fetch_youtube('K',query='gta',form='long',get=lambda e,pa,k:{'items':live} if e=='videos' else {'items':[{'id':{'videoId':'v1'}}]},now=1_000_000)
+  self.assertNotIn('v1',[r['video_id'] for r in p['examples']])
   with self.assertRaises(trends.TrendError):trends.fetch_youtube('K',form='shorts',get=get)
   with self.assertRaises(trends.TrendError):trends.fetch_youtube('K',query='gta',form='bogus',get=get)
   self.assertNotEqual(trends._cache_path('r','US','20','q','shorts'),trends._cache_path('r','US','20','q','long'))
