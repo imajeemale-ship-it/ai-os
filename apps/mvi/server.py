@@ -87,7 +87,8 @@ def run_score_job(job,max_usd,platforms):
   judge=get_judge()
   if judge is None:raise RuntimeError('Scoring judge is not configured')
   principles=knowledge_base.approved(ROOT)
-  try:trend_packet=trendlib.get(ROOT,query=os.environ.get('MVI_TREND_QUERY','gta online'))
+  form=trendlib.form_for_duration(info['technical'].get('duration_seconds'))
+  try:trend_packet=trendlib.get(ROOT,query=os.environ.get('MVI_TREND_QUERY','gta online'),form=form)
   except trendlib.TrendError:trend_packet=None
   frames=min(max(int(os.environ.get('MVI_SCORER_FRAMES','24')),2),48)
   ctx=(info['state'].get('metadata') or {}).get('editorial_context')
@@ -112,8 +113,10 @@ class Handler(BaseHTTPRequestHandler):
    state=learning.learning_state(ROOT,job)
    return self.respond(200,state) if state is not None else self.respond(404,{'error':'learning job not found'})
   if self.path=='/api/knowledge':return self.respond(200,{'principles':knowledge_base.listing(ROOT)})
-  if self.path=='/api/trends/youtube':
-   try:packet=trendlib.get(ROOT,query=os.environ.get('MVI_TREND_QUERY','gta online'))
+  if self.path.split('?')[0]=='/api/trends/youtube':
+   form=(self.path.split('form=')[1].split('&')[0] if 'form=' in self.path else None) or None
+   if form not in (None,)+trendlib.FORMS:return self.respond(400,{'error':'form must be shorts or long'})
+   try:packet=trendlib.get(ROOT,query=os.environ.get('MVI_TREND_QUERY','gta online'),form=form)
    except trendlib.TrendError as exc:return self.respond(502,{'error':str(exc)})
    if packet is None:return self.respond(403,{'error':'Trends are off: YOUTUBE_API_KEY is not set'})
    return self.respond(200,packet)
