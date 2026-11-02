@@ -15,6 +15,7 @@ from ai_os.robinhood_options import (
     RobinhoodMCPDataAdapter,
     _normalize_symbols,
     append_ledger,
+    credential_health,
     latest_open_position,
     market_session,
     paper_trade_cycle,
@@ -155,6 +156,7 @@ def run_basket(
         "exit_rule": config["exit_rule"],
         "max_holding_days": config["max_holding_days"],
         "market_session": asdict(session),
+        "credential_health": credential_health(),
     }
     if PAUSE_FILE.exists():
         record = {**base, "status": "rejected", "entry_rejections": ["paper_entries_paused_by_owner"], "quote": None, "order": None}

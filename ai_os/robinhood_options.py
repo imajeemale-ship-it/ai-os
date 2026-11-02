@@ -25,6 +25,22 @@ ALPACA_SECRET_FILE = Path.home() / ".ai-os" / "secrets" / "alpaca.env"
 EASTERN = ZoneInfo("America/New_York")
 
 
+def credential_health() -> dict[str, Any]:
+    """Return sanitized read-only market-data credential availability."""
+    robinhood_token = bool(os.environ.get("ROBINHOOD_MCP_ACCESS_TOKEN"))
+    alpaca_file = ALPACA_SECRET_FILE.exists()
+    alpaca_env = bool(
+        (os.environ.get("APCA_API_KEY_ID") or os.environ.get("ALPACA_API_KEY_ID"))
+        and (os.environ.get("APCA_API_SECRET_KEY") or os.environ.get("ALPACA_API_SECRET_KEY"))
+    )
+    return {
+        "robinhood_mcp": "available" if robinhood_token else "missing",
+        "alpaca": "available" if alpaca_file or alpaca_env else "missing",
+        "live_trading_allowed": False,
+        "secrets_exposed": False,
+    }
+
+
 class MarketDataUnavailable(RuntimeError):
     """Raised when a real market-data adapter cannot return a usable quote."""
 

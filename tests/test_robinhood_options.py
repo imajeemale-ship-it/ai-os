@@ -21,6 +21,7 @@ from ai_os.robinhood_options import (
     run_alpaca_cycle,
     run_fixture_cycle,
     due_diligence_score,
+    credential_health,
     rank_candidates,
     save_cycle_report,
     validate_entry,
@@ -28,6 +29,13 @@ from ai_os.robinhood_options import (
 
 
 class RobinhoodOptionsPaperTests(unittest.TestCase):
+    def test_credential_health_is_sanitized_and_paper_only(self):
+        health = credential_health()
+        self.assertIn(health["robinhood_mcp"], {"available", "missing"})
+        self.assertIn(health["alpaca"], {"available", "missing"})
+        self.assertFalse(health["live_trading_allowed"])
+        self.assertFalse(health["secrets_exposed"])
+
     def test_valid_fixture_passes_entry_gates(self):
         reasons = validate_entry(fixture_quote(), PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertEqual(reasons, [])
