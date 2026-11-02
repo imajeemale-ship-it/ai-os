@@ -14,7 +14,7 @@ from vindex_runner import compile_video_evidence
 import learning_brain as learning
 from link_intake import parse_link
 from fallback import build_record
-import judges, scoring, transcript as transcriptlib, platforms as platformlib
+import knowledge_base, trends as trendlib, judges, scoring, transcript as transcriptlib, platforms as platformlib
 from job_access import locate
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
 
@@ -86,10 +86,13 @@ def run_score_job(job,max_usd,platforms):
   status.write_text(json.dumps({'status':'running','started':__import__('time').time()}))
   judge=get_judge()
   if judge is None:raise RuntimeError('Scoring judge is not configured')
+  principles=knowledge_base.approved(ROOT)
+  try:trend_packet=trendlib.get(ROOT,query=os.environ.get('MVI_TREND_QUERY','gta online'))
+  except trendlib.TrendError:trend_packet=None
   frames=min(max(int(os.environ.get('MVI_SCORER_FRAMES','24')),2),48)
   ctx=(info['state'].get('metadata') or {}).get('editorial_context')
   result=scoring.score_video(info['video'],info['technical'],info['timeline'],ROOT/job,judge,
-                             max_usd=max_usd,platforms=platforms,frame_count=frames,context=ctx)
+                             max_usd=max_usd,platforms=platforms,frame_count=frames,context=ctx,trends=trend_packet,principles=principles)
   scoring._atomic(ROOT/job/'score.json',result)
   status.write_text(json.dumps({'status':'done'}))
  except Exception as exc:
@@ -108,6 +111,12 @@ class Handler(BaseHTTPRequestHandler):
     return self.respond(400,{'error':'invalid job'})
    state=learning.learning_state(ROOT,job)
    return self.respond(200,state) if state is not None else self.respond(404,{'error':'learning job not found'})
+  if self.path=='/api/knowledge':return self.respond(200,{'principles':knowledge_base.listing(ROOT)})
+  if self.path=='/api/trends/youtube':
+   try:packet=trendlib.get(ROOT,query=os.environ.get('MVI_TREND_QUERY','gta online'))
+   except trendlib.TrendError as exc:return self.respond(502,{'error':str(exc)})
+   if packet is None:return self.respond(403,{'error':'Trends are off: YOUTUBE_API_KEY is not set'})
+   return self.respond(200,packet)
   if self.path.startswith('/api/jobs/') and self.path.rsplit('/',1)[-1] in ('score','platform-fit'):
    parts=self.path.split('/')
    job=parts[3] if len(parts)==5 else ''
@@ -216,6 +225,13 @@ class Handler(BaseHTTPRequestHandler):
     else:threading.Thread(target=run_url_job,args=(job,url,directory,context),daemon=True).start()
     return self.respond(202,JOBS[job])
    except Exception as exc:return self.respond(400,{'error':str(exc)[:250]})
+  if self.path=='/api/knowledge/decide':
+   try:
+    size=int(self.headers.get('Content-Length','0'))
+    if not 0<size<=512:return self.respond(400,{'error':'invalid request size'})
+    data=json.loads(self.rfile.read(size))
+    return self.respond(200,knowledge_base.decide(ROOT,data['id'],data['decision']))
+   except (ValueError,KeyError,TypeError) as exc:return self.respond(400,{'error':str(exc)[:200]})
   if self.path.startswith('/api/jobs/') and self.path.rsplit('/',1)[-1] in ('transcript','score'):
    parts=self.path.split('/')
    job=parts[3] if len(parts)==5 else ''
