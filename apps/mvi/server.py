@@ -14,7 +14,7 @@ from vindex_runner import compile_video_evidence
 import learning_brain as learning
 from link_intake import parse_link
 from fallback import build_record
-import games, knowledge_base, trends as trendlib, judges, scoring, transcript as transcriptlib, platforms as platformlib
+import games, knowledge_base, thumbnail_judge, trends as trendlib, judges, scoring, transcript as transcriptlib, platforms as platformlib
 from job_access import locate
 ROOT=Path(os.environ.get('MVI_DATA_DIR',str(Path.home()/'.mvi')))
 
@@ -88,7 +88,7 @@ def run_score_job(job,max_usd,platforms):
   status.write_text(json.dumps({'status':'running','started':__import__('time').time()}))
   judge=get_judge()
   if judge is None:raise RuntimeError('Scoring judge is not configured')
-  principles=knowledge_base.approved(ROOT)
+  principles=[p for p in knowledge_base.approved(ROOT) if set(p['categories'])&set(scoring.RUBRIC)]
   form=trendlib.form_for_duration(info['technical'].get('duration_seconds'))
   ctx=(info['state'].get('metadata') or {}).get('editorial_context')
   query=games.query_for((ctx or {}).get('game'))
@@ -100,6 +100,26 @@ def run_score_job(job,max_usd,platforms):
   result=scoring.score_video(info['video'],info['technical'],info['timeline'],ROOT/job,judge,
                              max_usd=max_usd,platforms=platforms,frame_count=frames,context=ctx,trends=trend_packet,principles=principles)
   scoring._atomic(ROOT/job/'score.json',result)
+  status.write_text(json.dumps({'status':'done'}))
+ except Exception as exc:
+  status.write_text(json.dumps({'status':'failed','error':str(exc)[:300]}))
+
+def run_packaging_job(job):
+ info=_job_or_none(job);status=ROOT/job/'packaging_status.json'
+ try:
+  status.write_text(json.dumps({'status':'running','started':__import__('time').time()}))
+  judge=get_judge()
+  if judge is None:raise RuntimeError('Scoring judge is not configured')
+  thumb=next(iter(sorted(ROOT.joinpath(job).glob('thumbnail.*'))),None)
+  if thumb is None:raise RuntimeError('No thumbnail attached')
+  tf=ROOT/job/'title.txt'
+  tr=scoring.load_transcript(ROOT/job)
+  principles=[p for p in knowledge_base.approved(ROOT) if set(p['categories'])&thumbnail_judge.PRINCIPLE_CATEGORIES]
+  with tempfile.TemporaryDirectory() as tmp:
+   result=thumbnail_judge.evaluate(video=info['video'],technical=info['technical'],thumbnail=thumb,
+     title=tf.read_text() if tf.is_file() else '',transcript_text=transcriptlib.as_prompt_text(tr) if tr else '',
+     judge=judge,work_dir=tmp,principles=principles)
+  scoring._atomic(ROOT/job/'packaging.json',result)
   status.write_text(json.dumps({'status':'done'}))
  except Exception as exc:
   status.write_text(json.dumps({'status':'failed','error':str(exc)[:300]}))
@@ -130,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
    except trendlib.TrendError as exc:return self.respond(502,{'error':str(exc)})
    if packet is None:return self.respond(403,{'error':'Trends are off: YOUTUBE_API_KEY is not set'})
    return self.respond(200,packet)
-  if self.path.startswith('/api/jobs/') and self.path.rsplit('/',1)[-1] in ('score','platform-fit'):
+  if self.path.startswith('/api/jobs/') and self.path.rsplit('/',1)[-1] in ('score','platform-fit','packaging'):
    parts=self.path.split('/')
    job=parts[3] if len(parts)==5 else ''
    if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):return self.respond(400,{'error':'invalid job'})
@@ -139,6 +159,13 @@ class Handler(BaseHTTPRequestHandler):
    if parts[4]=='platform-fit':
     if not info['technical']:return self.respond(409,{'error':'analysis not finished'})
     return self.respond(200,platformlib.check_all(info['technical']))
+   if parts[4]=='packaging':
+    pd=ROOT/job/'packaging.json'
+    if pd.is_file():return self.respond(200,json.loads(pd.read_text()))
+    ps=ROOT/job/'packaging_status.json'
+    body={'status':'not_scored','gate':scoring.gate()['problems'],'thumbnail_attached':any(ROOT.joinpath(job).glob('thumbnail.*'))}
+    if ps.is_file():body.update(json.loads(ps.read_text()))
+    return self.respond(200,body)
    done=ROOT/job/'score.json'
    if done.is_file():return self.respond(200,json.loads(done.read_text()))
    st=ROOT/job/'score_status.json'
@@ -245,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
     data=json.loads(self.rfile.read(size))
     return self.respond(200,knowledge_base.decide(ROOT,data['id'],data['decision']))
    except (ValueError,KeyError,TypeError) as exc:return self.respond(400,{'error':str(exc)[:200]})
-  if self.path.startswith('/api/jobs/') and self.path.rsplit('/',1)[-1] in ('transcript','score'):
+  if self.path.startswith('/api/jobs/') and self.path.rsplit('/',1)[-1] in ('transcript','score','thumbnail','packaging'):
    parts=self.path.split('/')
    job=parts[3] if len(parts)==5 else ''
    if not (len(job)==32 and all(c in '0123456789abcdef' for c in job)):return self.respond(400,{'error':'invalid job'})
@@ -266,6 +293,45 @@ class Handler(BaseHTTPRequestHandler):
      target.write_text(text);os.chmod(target,0o600)
      duration=(info['technical'] or {}).get('duration_seconds')
      return self.respond(200,{'job_id':job,'transcript':transcriptlib.stats(parsed,duration)})
+    if parts[4]=='thumbnail':
+     size=int(self.headers.get('Content-Length','0'))
+     if not 0<size<=thumbnail_judge.MAX_IMAGE_BYTES:return self.respond(400,{'error':'Thumbnail must be an image under 5 MB'})
+     raw=self.rfile.read(size)
+     if len(raw)!=size:return self.respond(400,{'error':'Incomplete upload'})
+     try:ext,facts=thumbnail_judge.check_image(raw)
+     except thumbnail_judge.PackagingError as exc:return self.respond(400,{'error':str(exc)})
+     title=thumbnail_judge.clean_title(unquote(self.headers.get('X-MVI-Title','')))
+     for old in ROOT.joinpath(job).glob('thumbnail.*'):old.unlink()
+     for stale in ('packaging.json','packaging_status.json'):
+      if (ROOT/job/stale).is_file():(ROOT/job/stale).unlink()
+     target=ROOT/job/('thumbnail'+ext);target.write_bytes(raw);os.chmod(target,0o600)
+     (ROOT/job/'title.txt').write_text(title);os.chmod(ROOT/job/'title.txt',0o600)
+     return self.respond(200,{'job_id':job,'thumbnail':facts,'title':title or None,'title_facts':thumbnail_judge.title_facts(title) if title else None})
+    if parts[4]=='packaging':
+     g=scoring.gate()
+     if not g['enabled']:return self.respond(403,{'error':'Scoring is disabled','reasons':g['problems']})
+     if not (info['technical'] and info['video']):return self.respond(409,{'error':'analysis not finished or source video missing'})
+     if not any(ROOT.joinpath(job).glob('thumbnail.*')):return self.respond(409,{'error':'Attach a thumbnail first'})
+     size=int(self.headers.get('Content-Length','0'))
+     if not 0<size<=2048:return self.respond(400,{'error':'invalid request size'})
+     data=json.loads(self.rfile.read(size));confirm=data.get('confirm_max_usd')
+     if isinstance(confirm,bool) or not isinstance(confirm,(int,float)) or confirm<=0:
+      return self.respond(400,{'error':'confirm_max_usd is required and must be positive'})
+     cap=min(float(confirm),g['max_usd'])
+     tr=scoring.load_transcript(ROOT/job)
+     est=thumbnail_judge.estimate_usd(len(transcriptlib.as_prompt_text(tr)) if tr else 0,g)
+     if est['estimated_usd']>cap:return self.respond(400,{'error':'Estimated cost exceeds the allowed maximum','estimate':est,'allowed_usd':cap})
+     if not SCORE_LOCK.acquire(blocking=False):return self.respond(409,{'error':'A scoring run is already in progress'})
+     try:
+      ps=ROOT/job/'packaging_status.json'
+      if ps.is_file():
+       prior=json.loads(ps.read_text())
+       if prior.get('status')=='running' and __import__('time').time()-float(prior.get('started') or 0)<1800:
+        return self.respond(409,{'error':'This thumbnail is already being judged'})
+      ps.write_text(json.dumps({'status':'running','started':__import__('time').time()}))
+     finally:SCORE_LOCK.release()
+     threading.Thread(target=run_packaging_job,args=(job,),daemon=True).start()
+     return self.respond(202,{'job_id':job,'status':'judging','estimate':est,'allowed_usd':cap})
     # score
     g=scoring.gate()
     if not g['enabled']:return self.respond(403,{'error':'Scoring is disabled','reasons':g['problems']})
