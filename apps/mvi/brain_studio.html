@@ -401,7 +401,7 @@ function showAnalysis(data){
         if(g.status==='failed'){out.textContent='The last scoring run failed: '+(g.error||'unknown error')+'\nPress Score again to retry.';}
         const r=await api('/api/jobs/'+job+'/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
         out.textContent='Scoring started. Estimated cost $'+r.estimate.estimated_usd+'. Press Score again in a minute to see it.';
-      }catch(e){out.textContent=errorMessage(e)+' (Scoring stays off until the owner enables it and sets a spending cap.)'}});
+      }catch(e){const m=errorMessage(e);out.textContent=/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press Score again. This is a ceiling, not a charge.':m}});
     box.append(tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,sbtn,out);downloads.append(box);
   }
   if(job&&data.status==='completed'&&data.report_url){
