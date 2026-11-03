@@ -396,10 +396,12 @@ function showAnalysis(data){
     const sbtn=document.createElement('button');sbtn.type='button';sbtn.className='smallbutton';sbtn.textContent='Score this video';
     sbtn.addEventListener('click',async()=>{
       try{const g=await api('/api/jobs/'+job+'/score');
-        if(g.status==='scored'||g.status==='partial'){out.textContent=JSON.stringify(g.scorecard,null,1);return}
+        if(g.status==='scored'||g.status==='partial'){out.textContent=formatScore(g);return}
+        if(g.status==='running'){out.textContent='Still scoring. Press Score again in a minute.';return}
+        if(g.status==='failed'){out.textContent='The last scoring run failed: '+(g.error||'unknown error')+'\nPress Score again to retry.';}
         const r=await api('/api/jobs/'+job+'/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
         out.textContent='Scoring started. Estimated cost $'+r.estimate.estimated_usd+'. Press Score again in a minute to see it.';
-      }catch(e){out.textContent=errorMessage(e)+' (Scoring stays off until the owner enables it and sets a spending cap.)'}});
+      }catch(e){const m=errorMessage(e);out.textContent=/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press Score again. This is a ceiling, not a charge.':m}});
     box.append(tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,sbtn,out);downloads.append(box);
   }
   if(job&&data.status==='completed'&&data.report_url){
@@ -408,6 +410,29 @@ function showAnalysis(data){
       btn.addEventListener('click',()=>downloadReport(job,kind,label));downloads.append(btn);
     }
   }
+}
+function formatScore(g){
+  const L=[];const n=(v,d)=>v==null?'pending':v+(d||'');
+  L.push('OVERALL: '+n(g.overall_score,'/100')+' · '+g.recommendation+'  (80% knowledge, 20% trends)');
+  L.push('Knowledge: '+n(g.knowledge_score,'/100'));
+  const t=g.trend_fit||{};
+  L.push('Trend fit: '+(t.points!=null?t.points+'/20':'not evaluated — '+(t.reason||'no reason given')));
+  if(g.trend_snapshot)L.push('  against: '+g.trend_snapshot.scope+' ('+g.trend_snapshot.count+' videos, '+new Date(g.trend_snapshot.retrieved_at*1000).toLocaleString()+')');
+  if(t.points!=null){for(const e of t.evidence||[])L.push('  '+e.metric+': '+e.observation);if(t.feedback)L.push('  → '+t.feedback);for(const f of t.fixes||[])L.push('  FIX  '+f.fix)}
+  const mm=s=>{s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+  L.push('');
+  for(const [k,c] of Object.entries((g.scorecard||{}).categories||{})){
+    const name=k.replace(/_/g,' ');
+    if(c.status!=='evaluated'){L.push(name.toUpperCase()+': not evaluated — '+(c.reason||'missing evidence'));L.push('');continue}
+    L.push(name.toUpperCase()+': '+c.score+'/'+c.maximum+(c.principles&&c.principles.length?'  ['+c.principles.join(', ')+']':''));
+    for(const e of c.evidence||[])L.push('  '+mm(e.timestamp_seconds)+'  '+e.observation);
+    if(c.feedback)L.push('  → '+c.feedback);
+    for(const f of c.fixes||[])L.push('  FIX '+mm(f.timestamp_seconds)+'  '+f.fix);
+    L.push('');
+  }
+  if(g.usage)L.push('Usage: '+JSON.stringify(g.usage));
+  for(const c of g.caveats||[])L.push('Note: '+c);
+  return L.join('\n');
 }
 async function pollAnalysis(id){
   if(state.analysis!==id)return;
