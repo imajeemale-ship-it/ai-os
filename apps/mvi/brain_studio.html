@@ -588,10 +588,12 @@ function waitText(data){
   if(data.status==='queued'){parts.push(q.queued_ahead>0?q.queued_ahead+' ahead of you':'next up');if(q.running_now)parts.push(q.running_now+' running now')}
   return parts.join(' · ');
 }
-function etaSeconds(data){const q=data.queue||{};if(!q.typical_seconds)return null;return q.typical_seconds*(data.status==='queued'?(q.queued_ahead||0)+1:1)}
+const DEFAULT_SEC={Analyzing:120,Scoring:60,Judging:30};
+function etaSeconds(data){const q=data.queue||{};const t=q.typical_seconds||DEFAULT_SEC.Analyzing;return t*(data.status==='queued'?(q.queued_ahead||0)+1:1)}
 function left(eta,elapsed){if(eta==null)return fmt(elapsed)+' elapsed';const r=eta-elapsed;return r>0?'about '+fmt(r)+' left':'taking longer than usual · '+fmt(elapsed)+' so far'}
-function typicalRun(what){try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]').sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:null}catch(e){return null}}
-function saveRun(what,sec){try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]');a.push(Math.round(sec));localStorage.setItem('mvi_runs_'+what,JSON.stringify(a.slice(-7)))}catch(e){}}
+function runKey(what){return String(what).split(' (')[0]}
+function typicalRun(what){what=runKey(what);try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]').sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:(DEFAULT_SEC[what]||null)}catch(e){return DEFAULT_SEC[what]||null}}
+function saveRun(what,sec){what=runKey(what);try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]');a.push(Math.round(sec));localStorage.setItem('mvi_runs_'+what,JSON.stringify(a.slice(-7)))}catch(e){}}
 let clock=null;
 setInterval(()=>{if(clock){const el=$(clock.id);if(el)el.textContent=clock.base+' · '+left(clock.eta,(Date.now()-clock.start)/1000)}},1000);
 async function watchRun(url,out,what,render){
