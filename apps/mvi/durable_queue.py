@@ -128,6 +128,32 @@ class DurableQueue:
                 (now+retry_delay, str(error)[:500], now, job_id, lease_token, now)).rowcount
         return updated == 1
 
+    def progress(self, job_id, now=None):
+        """Where a job stands: jobs queued ahead of it, jobs running, and a typical run time from recent runs."""
+        now = time.time() if now is None else now
+        with self._db() as db:
+            me = db.execute("SELECT status, created_at FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            if me is None:
+                return None
+            ahead = db.execute("SELECT COUNT(*) FROM jobs WHERE status='queued' AND job_id!=? AND "
+                               "(created_at<? OR (created_at=? AND job_id<?))",
+                               (job_id, me['created_at'], me['created_at'], job_id)).fetchone()[0]
+            running = db.execute("SELECT COUNT(*) FROM jobs WHERE status='running' AND job_id!=?", (job_id,)).fetchone()[0]
+            rows = db.execute("SELECT result FROM jobs WHERE status='completed' AND kind IN ('upload','url') "
+                              "ORDER BY updated_at DESC LIMIT 20").fetchall()
+        secs = []
+        for r in rows:
+            try:
+                v = json.loads(r['result'] or 'null')
+                if isinstance(v, dict) and isinstance(v.get('seconds'), (int, float)) and v['seconds'] > 0:
+                    secs.append(float(v['seconds']))
+            except ValueError:
+                pass
+        secs.sort()
+        typical = secs[len(secs) // 2] if len(secs) >= 3 else None
+        return {'status': me['status'], 'queued_ahead': ahead if me['status'] == 'queued' else 0, 'running_now': running,
+                'waited_seconds': round(max(now - me['created_at'], 0), 1), 'typical_seconds': typical, 'samples': len(secs)}
+
     def get(self, job_id):
         with self._db() as db:
             row = db.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
