@@ -408,8 +408,8 @@ function showAnalysis(data){
     return;
   }
   if(job&&data.status==='completed'){
-    const box=document.createElement('div');box.style.cssText='margin-top:10px;display:grid;gap:8px';
-    const out=document.createElement('pre');out.style.cssText='white-space:pre-wrap;font-size:12px;margin:0';
+    const box=document.createElement('div');box.style.cssText='margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px';
+    const out=document.createElement('pre');out.style.cssText='white-space:pre-wrap;font-size:12px;margin:0;flex-basis:100%';
     const tfile=document.createElement('input');tfile.type='file';tfile.accept='.txt,.md,.vtt,.srt';
     const tbtn=document.createElement('button');tbtn.type='button';tbtn.className='smallbutton';tbtn.textContent='Attach transcript';
     tbtn.addEventListener('click',async()=>{
@@ -432,7 +432,30 @@ function showAnalysis(data){
         const r=await api('/api/jobs/'+job+'/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
         out.textContent='Scoring started. Estimated cost $'+r.estimate.estimated_usd+'. Press Score again in a minute to see it.';
       }catch(e){const m=errorMessage(e);out.textContent=/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press Score again. This is a ceiling, not a charge.':m}});
-    box.append(tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,sbtn,out);downloads.append(box);
+    box.append(document.createTextNode('Transcript:'),tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,sbtn,out);
+    const pk=document.createElement('div');pk.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:8px;flex-basis:100%';
+    const pfile=document.createElement('input');pfile.type='file';pfile.accept='image/png,image/jpeg,image/webp';pfile.title='Thumbnail image (PNG, JPG or WebP, up to 5 MB)';
+    const ptitle=document.createElement('input');ptitle.type='text';ptitle.maxLength=150;ptitle.placeholder='Video title';ptitle.style.cssText='flex:1;min-width:150px';
+    const pbtn2=document.createElement('button');pbtn2.type='button';pbtn2.className='smallbutton';pbtn2.textContent='Judge thumbnail & title';
+    const pout=document.createElement('pre');pout.style.cssText='white-space:pre-wrap;font-size:12px;margin:0;flex-basis:100%';
+    pbtn2.addEventListener('click',async()=>{
+      try{
+        const base='/api/jobs/'+job+'/';
+        const f=pfile.files[0];
+        if(f){
+          const r=await api(base+'thumbnail',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MVI-Title':encodeURIComponent(ptitle.value.trim())},body:f});
+          pfile.value='';pout.textContent='Thumbnail attached ('+r.thumbnail.width+'x'+r.thumbnail.height+(r.title?', title saved':', no title')+'). Starting the judge…\n';
+        }else{
+          const g=await api(base+'packaging');
+          if(g.status==='scored'||g.status==='partial'){pout.textContent=formatPackaging(g);return}
+          if(g.status==='running'){pout.textContent='Still judging. Press again in a minute.';return}
+          if(!g.thumbnail_attached){pout.textContent='Choose a thumbnail image first.';return}
+          if(g.status==='failed')pout.textContent='The last run failed: '+(g.error||'unknown error')+'\nRetrying…\n';
+        }
+        const r2=await api(base+'packaging',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
+        pout.textContent+='Judging started. Estimated cost up to $'+r2.estimate.estimated_usd+'. Press again in a minute to see it.';
+      }catch(e){const m=errorMessage(e);pout.textContent=/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press again. This is a ceiling, not a charge.':/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':m}});
+    pk.append(document.createTextNode('Thumbnail:'),pfile,ptitle,pbtn2,pout);box.append(pk);downloads.append(box);
   }
   if(job&&data.status==='completed'&&data.report_url){
     for(const [label,kind] of [['Editor report','editor'],['Editor handoff','handoff'],['Evidence timeline','timeline']]){
@@ -458,6 +481,24 @@ function formatScore(g){
     for(const e of c.evidence||[])L.push('  '+mm(e.timestamp_seconds)+'  '+e.observation);
     if(c.feedback)L.push('  → '+c.feedback);
     for(const f of c.fixes||[])L.push('  FIX '+mm(f.timestamp_seconds)+'  '+f.fix);
+    L.push('');
+  }
+  if(g.usage)L.push('Usage: '+JSON.stringify(g.usage));
+  for(const c of g.caveats||[])L.push('Note: '+c);
+  return L.join('\n');
+}
+function formatPackaging(g){
+  const L=[];
+  L.push('THUMBNAIL & TITLE: '+(g.packaging_score==null?'pending':g.packaging_score+'/100')+'  (separate from the video score)');
+  if(g.title)L.push('Title: '+g.title);
+  L.push('');
+  for(const [k,c] of Object.entries(g.categories||{})){
+    const name=k.replace(/_/g,' ').toUpperCase();
+    if(c.status!=='evaluated'){L.push(name+': not evaluated — '+(c.reason||'missing evidence'));L.push('');continue}
+    L.push(name+': '+c.score+'/'+c.maximum+(c.principles&&c.principles.length?'  ['+c.principles.join(', ')+']':''));
+    for(const e of c.evidence||[])L.push('  ['+e.source+(e.timestamp_seconds!=null?' '+Math.floor(e.timestamp_seconds/60)+':'+String(Math.round(e.timestamp_seconds%60)).padStart(2,'0'):'')+'] '+e.observation);
+    if(c.feedback)L.push('  → '+c.feedback);
+    for(const f of c.fixes||[])L.push('  FIX  '+f.fix);
     L.push('');
   }
   if(g.usage)L.push('Usage: '+JSON.stringify(g.usage));

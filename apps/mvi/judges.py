@@ -52,7 +52,32 @@ class AnthropicJudge:
                 data = base64.b64encode(f.read()).decode()
             content.append({'type': 'text', 'text': f"Frame at {fr['timestamp_seconds']}s:"})
             content.append({'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': data}})
-        body = json.dumps({'model': self.model, 'max_tokens': self.max_tokens, 'system': SYSTEM,
+        return self._post(SYSTEM, content, self.max_tokens)
+
+    def judge_packaging(self, packet):
+        import thumbnail_judge as packaging
+        content = [{'type': 'text', 'text': 'PACKAGING CRITERIA:\n' + json.dumps(
+            {k: {'maximum': v['maximum'], 'anchor': v['anchor']} for k, v in packaging.CATEGORIES.items()}, indent=1)},
+            {'type': 'text', 'text': 'FACTS:\n' + json.dumps(packet['facts'], indent=1)}]
+        if packet.get('principles'):
+            content.append({'type': 'text', 'text': 'APPROVED PRINCIPLES (cite ids):\n' + json.dumps(packet['principles'], indent=1)})
+        if packet.get('title'):
+            content.append({'type': 'text', 'text': '<title data>\n' + packet['title'].replace('title data>', 'title-data') + '\n</title data>'})
+        with open(packet['thumbnail_file'], 'rb') as f:
+            content.append({'type': 'text', 'text': 'THUMBNAIL:'})
+            content.append({'type': 'image', 'source': {'type': 'base64', 'media_type': packet['thumbnail_media'],
+                                                        'data': base64.b64encode(f.read()).decode()}})
+        if packet.get('transcript_text'):
+            content.append({'type': 'text', 'text': '<transcript data>\n' + packet['transcript_text'].replace('transcript data>', 'transcript-data') + '\n</transcript data>'})
+        for fr in packet['frames']:
+            with open(fr['file'], 'rb') as f:
+                content.append({'type': 'text', 'text': f"Video frame at {fr['timestamp_seconds']}s:"})
+                content.append({'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
+                                                            'data': base64.b64encode(f.read()).decode()}})
+        return self._post(packaging.SYSTEM, content, 2500)
+
+    def _post(self, system, content, max_tokens):
+        body = json.dumps({'model': self.model, 'max_tokens': max_tokens, 'system': system,
                            'messages': [{'role': 'user', 'content': content}]}).encode()
         req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=body, method='POST',
                                      headers={'x-api-key': self.api_key, 'anthropic-version': '2023-06-01',
