@@ -406,7 +406,7 @@ function showAnalysis(data){
   tag('analysis',data.status||'unknown');
   status('analysis',data.status==='completed'?'Analysis finished. Reports are ready.':
     data.status==='failed'?'Analysis failed: '+(data.error||'unknown error'):
-    waitText(data),data.status==='failed');
+    waitText(data)+' · '+left(etaSeconds(data),(Date.now()-(clock&&clock.job===job?clock.start:Date.now()-((data.queue&&data.queue.waited_seconds)||0)*1000))/1000),data.status==='failed');
   const active=!['completed','failed','needs_fallback'].includes(data.status);
   if(active){const prev=clock&&clock.job===job?clock.start:Date.now()-((data.queue&&data.queue.waited_seconds)||0)*1000;
     clock={id:'analysis-status',job,start:prev,base:waitText(data),eta:etaSeconds(data)}}else if(clock&&clock.job===job){clock=null}
@@ -595,11 +595,11 @@ function runKey(what){return String(what).split(' (')[0]}
 function typicalRun(what){what=runKey(what);try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]').sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:(DEFAULT_SEC[what]||null)}catch(e){return DEFAULT_SEC[what]||null}}
 function saveRun(what,sec){what=runKey(what);try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]');a.push(Math.round(sec));localStorage.setItem('mvi_runs_'+what,JSON.stringify(a.slice(-7)))}catch(e){}}
 let clock=null;
-setInterval(()=>{if(clock){const el=$(clock.id);if(el)el.textContent=clock.base+' · '+left(clock.eta,(Date.now()-clock.start)/1000)}},1000);
+setInterval(()=>{if(clock){const el=$(clock.id);if(el){const t=clock.base+' · '+left(clock.eta,(Date.now()-clock.start)/1000);if(el.textContent!==t)el.textContent=t}}},250);
 async function watchRun(url,out,what,render){
   const id=String(Date.now());out.dataset.run=id;const t0=Date.now();out.dataset.base=what;
   const eta=typicalRun(what);const line=()=>what+'… '+left(eta,(Date.now()-t0)/1000)+'. This page checks for the result, so you can leave it open.';
-  const tick=setInterval(()=>{if(out.dataset.run!==id)return clearInterval(tick);out.textContent=line()},1000);
+  const tick=setInterval(()=>{if(out.dataset.run!==id)return clearInterval(tick);const t=line();if(out.textContent!==t)out.textContent=t},250);
   out.textContent=line();
   try{
     for(let i=0;i<400&&out.dataset.run===id;i++){
