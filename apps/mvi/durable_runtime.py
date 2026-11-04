@@ -45,9 +45,12 @@ def state(root, job_id):
                     report_url=f'/api/reports/{job_id}/editor',
                     handoff_url=f'/api/reports/{job_id}/handoff')
                 return result
-    return {'job_id':job_id,'status':status,'attempts':entry['attempts'],
-            'error':entry['error'] if status=='failed' else None,
-            'creative_score':None}
+    out={'job_id':job_id,'status':status,'attempts':entry['attempts'],
+         'error':entry['error'] if status=='failed' else None,
+         'creative_score':None}
+    if status in ('queued','running'):
+        out['queue']=queue(root).progress(job_id)
+    return out
 
 
 def report_path(root,job_id,kind):
@@ -76,6 +79,7 @@ def adopt_captions(url,attempt_dir,job_dir):
 
 
 def process(root, claim):
+    started=time.time()
     job=claim['job_id'];directory=Path(root)/job
     payload=claim['payload']
     # Keep each attempt's outputs isolated; no retry may publish over a previous attempt.
@@ -124,7 +128,7 @@ def process(root, claim):
     # This is an attempt-local staging record. The API uses it only if the
     # durable queue reports completed with the matching attempt.
     save_job(attempt_dir,result)
-    return {'attempt':claim['attempt']}
+    return {'attempt':claim['attempt'],'seconds':round(time.time()-started,1)}
 
 
 def work_once(root):

@@ -373,7 +373,10 @@ function showAnalysis(data){
   tag('analysis',data.status||'unknown');
   status('analysis',data.status==='completed'?'Analysis finished. Reports are ready.':
     data.status==='failed'?'Analysis failed: '+(data.error||'unknown error'):
-    'Job '+job.slice(0,8)+'… · '+(data.status||'submitted'),data.status==='failed');
+    waitText(data),data.status==='failed');
+  const active=!['completed','failed','needs_fallback'].includes(data.status);
+  if(active){const prev=clock&&clock.job===job?clock.start:Date.now()-((data.queue&&data.queue.waited_seconds)||0)*1000;
+    clock={id:'analysis-status',job,start:prev,base:waitText(data)}}else if(clock&&clock.job===job){clock=null}
   const summary=$('analysis-summary');
   summary.hidden=false;
   const report=data.editor_report||{};
@@ -427,10 +430,10 @@ function showAnalysis(data){
     sbtn.addEventListener('click',async()=>{
       try{const g=await api('/api/jobs/'+job+'/score');
         if(g.status==='scored'||g.status==='partial'){out.textContent=formatScore(g);return}
-        if(g.status==='running'){out.textContent='Still scoring. Press Score again in a minute.';return}
+        if(g.status==='running'){watchRun('/api/jobs/'+job+'/score',out,'Scoring',formatScore);return}
         if(g.status==='failed'){out.textContent='The last scoring run failed: '+(g.error||'unknown error')+'\nPress Score again to retry.';}
         const r=await api('/api/jobs/'+job+'/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
-        out.textContent='Scoring started. Estimated cost $'+r.estimate.estimated_usd+'. Press Score again in a minute to see it.';
+        watchRun('/api/jobs/'+job+'/score',out,'Scoring (cost up to $'+r.estimate.estimated_usd+')',formatScore);
       }catch(e){const m=errorMessage(e);out.textContent=/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press Score again. This is a ceiling, not a charge.':m}});
     box.append(document.createTextNode('Transcript:'),tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,sbtn,out);
     const pk=document.createElement('div');pk.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:8px;flex-basis:100%';
@@ -448,12 +451,12 @@ function showAnalysis(data){
         }else{
           const g=await api(base+'packaging');
           if(g.status==='scored'||g.status==='partial'){pout.textContent=formatPackaging(g);return}
-          if(g.status==='running'){pout.textContent='Still judging. Press again in a minute.';return}
+          if(g.status==='running'){watchRun(base+'packaging',pout,'Judging',formatPackaging);return}
           if(!g.thumbnail_attached){pout.textContent='Choose a thumbnail image first.';return}
           if(g.status==='failed')pout.textContent='The last run failed: '+(g.error||'unknown error')+'\nRetrying…\n';
         }
         const r2=await api(base+'packaging',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
-        pout.textContent+='Judging started. Estimated cost up to $'+r2.estimate.estimated_usd+'. Press again in a minute to see it.';
+        watchRun(base+'packaging',pout,'Judging (cost up to $'+r2.estimate.estimated_usd+')',formatPackaging);
       }catch(e){const m=errorMessage(e);pout.textContent=/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press again. This is a ceiling, not a charge.':/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':m}});
     pk.append(document.createTextNode('Thumbnail:'),pfile,ptitle,pbtn2,pout);box.append(pk);downloads.append(box);
   }
@@ -504,6 +507,31 @@ function formatPackaging(g){
   if(g.usage)L.push('Usage: '+JSON.stringify(g.usage));
   for(const c of g.caveats||[])L.push('Note: '+c);
   return L.join('\n');
+}
+function fmt(sec){sec=Math.max(0,Math.round(sec));return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0')}
+const STAGE={queued:'Waiting in line',running:'Analyzing',retrieving:'Retrieving the video',compiling_timeline:'Building the timeline',reviewing_frames:'Reviewing frames'};
+function waitText(data){
+  const q=data.queue||{};const parts=[STAGE[data.status]||data.status||'Working'];
+  if(data.status==='queued'){parts.push(q.queued_ahead>0?q.queued_ahead+' ahead of you':'next up');if(q.running_now)parts.push(q.running_now+' running now')}
+  if(q.typical_seconds){const n=data.status==='queued'?(q.queued_ahead||0)+1:1;parts.push('roughly '+fmt(q.typical_seconds*n)+' (from your last '+q.samples+' runs)')}
+  return parts.join(' · ');
+}
+let clock=null;
+setInterval(()=>{if(clock){const el=$(clock.id);if(el)el.textContent=clock.base+' · '+fmt((Date.now()-clock.start)/1000)+' elapsed'}},1000);
+async function watchRun(url,out,what,render){
+  const id=String(Date.now());out.dataset.run=id;const t0=Date.now();out.dataset.base=what;
+  const tick=setInterval(()=>{if(out.dataset.run!==id)return clearInterval(tick);out.textContent=what+'… '+fmt((Date.now()-t0)/1000)+' elapsed. This page checks for the result, so you can leave it open.'},1000);
+  out.textContent=what+'… 0:00 elapsed. This page checks for the result, so you can leave it open.';
+  try{
+    for(let i=0;i<400&&out.dataset.run===id;i++){
+      await new Promise(r=>setTimeout(r,3000));
+      const g=await api(url);
+      if(g.status==='scored'||g.status==='partial'){out.textContent=render(g);break}
+      if(g.status==='failed'){out.textContent=what+' failed: '+(g.error||'unknown error')+'\nPress the button again to retry.';break}
+      if(g.status==='not_scored'&&i>2){out.textContent=what+' did not start. Press the button again.';break}
+    }
+  }catch(e){if(out.dataset.run===id)out.textContent=errorMessage(e)}
+  finally{clearInterval(tick)}
 }
 async function pollAnalysis(id){
   if(state.analysis!==id)return;
