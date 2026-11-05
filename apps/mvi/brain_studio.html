@@ -168,6 +168,11 @@ h2{font-size:21px;margin:5px 0 12px}
 .chip{flex:none;background:rgba(116,222,240,.14);color:var(--left);border-radius:6px;padding:1px 7px;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums}
 .fixes{background:rgba(125,235,190,.07);border-radius:9px;padding:8px}.fixes b{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--green)}
 .fix .chip{background:rgba(125,235,190,.16);color:var(--green)}
+.timer{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;background:linear-gradient(135deg,rgba(116,222,240,.12),rgba(195,160,255,.14));border:1px solid var(--line);border-radius:14px;padding:12px 16px}
+.timer .big{font-size:38px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--left)}.timer .big.wait{font-size:26px;color:#ffc66b}
+.timer .tl{font-size:15px;font-weight:800}.timer small{flex-basis:100%;color:var(--muted);font-size:11px}
+#analysis-status{font-weight:800}
+.weight{font-size:11px;color:var(--muted);margin-top:-4px}
 .cat-foot{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pid{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
 .learn{margin-left:auto;border:1px solid var(--right);background:rgba(195,160,255,.12);color:var(--right);border-radius:99px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer}
@@ -414,6 +419,7 @@ function showAnalysis(data){
     data.status==='failed'?'Analysis failed: '+(data.error||'unknown error'):
     waitText(data)+' · '+left(etaSeconds(data),(Date.now()-(clock&&clock.job===job?clock.start:Date.now()-((data.queue&&data.queue.waited_seconds)||0)*1000))/1000),data.status==='failed');
   const active=!['completed','failed','needs_fallback'].includes(data.status);
+  if(!active&&clock&&clock.job===job&&data.status==='completed'){saveRun('Analyzing',(Date.now()-clock.start)/1000)}
   if(active){const prev=clock&&clock.job===job?clock.start:Date.now()-((data.queue&&data.queue.waited_seconds)||0)*1000;
     clock={id:'analysis-status',job,start:prev,base:waitText(data),eta:etaSeconds(data)}}else if(clock&&clock.job===job){clock=null}
   const summary=$('analysis-summary');
@@ -519,14 +525,14 @@ function ring(value,max,label,pending){
   const in_=h('div','ring-in');in_.append(h('b',null,pending?'—':String(value)),h('small',null,pending?'pending':'/ '+max));w.append(in_);
   const box=h('div','ringbox');box.append(w,h('span','ringlabel',label));return box;
 }
-function catCard(k,c,packaging){
+function catCard(k,c,share){
   const name=k.replace(/_/g,' ');const card=h('div','cat');
   const top=h('div','cat-top');top.append(h('span','cat-name',name));
   if(c.status!=='evaluated'){
     card.classList.add('na');top.append(h('span','cat-score','not evaluated'));card.append(top,h('p','muted',c.reason||'missing evidence'));return card;
   }
   const r=c.score/c.maximum;const t=tone(r);card.classList.add(t);
-  top.append(h('span','cat-score',c.score+' / '+c.maximum));card.append(top);
+  top.append(h('span','cat-score',Math.round(r*100)+' / 100'));card.append(top);if(share!=null)card.append(h('span','weight','Worth '+share+'% of the overall score'));
   const bar=h('div','bar');const fill=h('i');fill.style.width=Math.round(r*100)+'%';bar.append(fill);card.append(bar);
   if(c.feedback)card.append(h('p','verdict',c.feedback));
   if((c.evidence||[]).length){const ev=h('div','ev');
@@ -555,18 +561,18 @@ function formatScore(g){
   const mini=h('div','minis');
   mini.append(h('div','mini',null));
   mini.firstChild.append(h('b',null,g.knowledge_score==null?'pending':g.knowledge_score+'/100'),h('small',null,'Knowledge (80%)'));
-  const m2=h('div','mini');m2.append(h('b',null,t.points!=null?t.points+'/20':'n/a'),h('small',null,'Trend fit (20%)'));mini.append(m2);
+  const m2=h('div','mini');m2.append(h('b',null,t.points!=null?Math.round(t.points*5)+'/100':'n/a'),h('small',null,'Trend fit (20%)'));mini.append(m2);
   side.append(mini);
   if(pend)side.append(h('p','muted','No total yet: some categories could not be judged. Attach a transcript and score again to complete it.'));
   hero.append(side);root.append(hero);
   const cats=h('div','cats');
   if(t.points!=null){
     const c={status:'evaluated',score:t.points,maximum:20,feedback:t.feedback,evidence:(t.evidence||[]).map(e=>({source:e.metric,observation:e.observation})),fixes:t.fixes||[],principles:[]};
-    const card=catCard('trend_fit',c);
+    const card=catCard('trend_fit',c,20);
     if(g.trend_snapshot){const sn=h('p','muted','Compared with: '+g.trend_snapshot.scope+' ('+g.trend_snapshot.count+' videos, '+new Date(g.trend_snapshot.retrieved_at*1000).toLocaleDateString()+')');card.insertBefore(sn,card.children[2]||null)}
     cats.append(card);
   }else cats.append(catCard('trend_fit',{status:'x',reason:t.reason||'no reason given'}));
-  for(const [k,c] of Object.entries((g.scorecard||{}).categories||{}))cats.append(catCard(k,c));
+  for(const [k,c] of Object.entries((g.scorecard||{}).categories||{}))cats.append(catCard(k,c,Math.round(c.maximum*0.8)));
   root.append(cats);
   const notes=h('div','notes');
   for(const c of g.caveats||[])notes.append(h('p','muted','• '+c));
@@ -579,7 +585,7 @@ function formatPackaging(g){
   const side=h('div','hero-side');side.append(h('p','muted','Separate from the video score.'));if(g.title)side.append(h('p','verdict','“'+g.title+'”'));
   hero.append(side);root.append(hero);
   const cats=h('div','cats');
-  for(const [k,c] of Object.entries(g.categories||{}))cats.append(catCard(k,c,true));
+  for(const [k,c] of Object.entries(g.categories||{}))cats.append(catCard(k,c,c.maximum));
   root.append(cats);
   const notes=h('div','notes');for(const c of g.caveats||[])notes.append(h('p','muted','• '+c));
   if(g.usage)notes.append(h('p','muted','Tokens used: '+g.usage.input_tokens+' in / '+g.usage.output_tokens+' out'));
@@ -592,9 +598,12 @@ function waitText(data){
   if(data.status==='queued'){parts.push(q.queued_ahead>0?q.queued_ahead+' ahead of you':'next up');if(q.running_now)parts.push(q.running_now+' running now')}
   return parts.join(' · ');
 }
-const DEFAULT_SEC={Analyzing:120,Scoring:60,Judging:30};
-function etaSeconds(data){const q=data.queue||{};const t=q.typical_seconds||DEFAULT_SEC.Analyzing;return t*(data.status==='queued'?(q.queued_ahead||0)+1:1)}
-function left(eta,elapsed){if(eta==null)return fmt(elapsed)+' elapsed';const r=eta-elapsed;return r>0?'about '+fmt(r)+' left':'taking longer than usual · '+fmt(elapsed)+' so far'}
+const DEFAULT_SEC={Analyzing:180,Scoring:60,Judging:30};
+function etaSeconds(data){const q=data.queue||{};const t=q.typical_seconds||typicalRun('Analyzing')||DEFAULT_SEC.Analyzing;return t*(data.status==='queued'?(q.queued_ahead||0)+1:1)}
+function left(eta,elapsed){if(eta==null)return fmt(elapsed)+' elapsed';const r=eta-elapsed;return r>0?fmt(r)+' left':'finishing up, a little longer than usual…'}
+function timerNode(what,eta,elapsed){const w=h('div','timer');const r=eta==null?null:eta-elapsed;
+  const big=h('b',r!=null&&r>0?'big':'big wait',eta==null?fmt(elapsed):(r>0?fmt(r):'Almost done'));
+  w.append(big,h('span','tl',eta==null?'elapsed':(r>0?'left':'taking a little longer than usual')),h('small',null,what+'. This page checks for the result, so you can leave it open.'));return w}
 function runKey(what){return String(what).split(' (')[0]}
 function typicalRun(what){what=runKey(what);try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]').sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:(DEFAULT_SEC[what]||null)}catch(e){return DEFAULT_SEC[what]||null}}
 function saveRun(what,sec){what=runKey(what);try{const a=JSON.parse(localStorage.getItem('mvi_runs_'+what)||'[]');a.push(Math.round(sec));localStorage.setItem('mvi_runs_'+what,JSON.stringify(a.slice(-7)))}catch(e){}}
@@ -602,9 +611,10 @@ let clock=null;
 setInterval(()=>{if(clock){const el=$(clock.id);if(el){const t=clock.base+' · '+left(clock.eta,(Date.now()-clock.start)/1000);if(el.textContent!==t)el.textContent=t}}},250);
 async function watchRun(url,out,what,render){
   const id=String(Date.now());out.dataset.run=id;const t0=Date.now();out.dataset.base=what;
-  const eta=typicalRun(what);const line=()=>what+'… '+left(eta,(Date.now()-t0)/1000)+'. This page checks for the result, so you can leave it open.';
-  const tick=setInterval(()=>{if(out.dataset.run!==id)return clearInterval(tick);const t=line();if(out.textContent!==t)out.textContent=t},250);
-  out.textContent=line();
+  const eta=typicalRun(what);const key=()=>{const e=(Date.now()-t0)/1000;return eta==null?fmt(e):(eta-e>0?fmt(eta-e):'x')};let last='';
+  const draw=()=>{const k=key();if(k===last)return;last=k;out.replaceChildren(timerNode(what,eta,(Date.now()-t0)/1000))};
+  const tick=setInterval(()=>{if(out.dataset.run!==id)return clearInterval(tick);draw()},250);
+  draw();
   try{
     for(let i=0;i<400&&out.dataset.run===id;i++){
       await new Promise(r=>setTimeout(r,3000));
