@@ -258,7 +258,7 @@ footer{color:#71809b;font-size:11px;text-align:center;justify-content:center}
       <label for="analysis-url">Video URL</label>
       <div class="actionline">
         <input id="analysis-url" type="url" placeholder="Paste a YouTube, TikTok, or Instagram link">
-        <button class="primary" id="analyze-link" type="button">Analyze link</button>
+        <button class="primary" id="analyze-link" type="button">Analyze &amp; score link</button>
       </div>
       <div class="divider"><span>OR DROP A VIDEO</span></div>
       <div class="drop" id="analysis-drop" role="button" tabindex="0" aria-label="Choose or drop a video for analysis">
@@ -271,7 +271,13 @@ footer{color:#71809b;font-size:11px;text-align:center;justify-content:center}
       <div class="gamerow">
         <label for="game" class="sr">Which game is this video about?</label>
         <select id="game" title="Which game is this video about?"><option value="gta">GTA Online</option><option value="cod">Call of Duty</option><option value="other">Other (no trend score)</option></select>
-        <button class="primary" id="analyze-upload" type="button">Analyze selected video</button>
+        <button class="primary" id="analyze-upload" type="button">Analyze &amp; score video</button>
+      </div>
+      <div class="gamerow" style="margin-top:8px">
+        <label for="analysis-captions" style="font-size:12px;color:var(--muted)">Captions (optional, SRT/VTT/TXT)</label>
+        <input id="analysis-captions" type="file" accept=".txt,.md,.vtt,.srt" style="max-width:100%">
+        <label for="analysis-cost" style="font-size:12px;color:var(--muted)">Max cost USD</label>
+        <input id="analysis-cost" type="number" min="0.01" step="0.01" value="1" title="Most you allow the scoring step to cost. A ceiling, not a charge." style="width:80px">
       </div>
       <details class="context">
         <summary>Add creative direction (recommended)</summary>
@@ -429,7 +435,7 @@ function showAnalysis(data){
   if(data.status==='needs_fallback'){
     tag('analysis','needs video');
     status('analysis',(data.message||'The link could not be retrieved.')+' Attach the video file below, or use the local helper. Nothing was scored.',true);
-    if(data.resolved_by){state.analysis=data.resolved_by;status('analysis','Video attached. Analysis continues in job '+data.resolved_by.slice(0,8)+'…');pollAnalysis(data.resolved_by);return}
+    if(data.resolved_by){state.analysis=data.resolved_by;if(state.auto)state.auto.job=data.resolved_by;status('analysis','Video attached. Analysis continues in job '+data.resolved_by.slice(0,8)+'…');pollAnalysis(data.resolved_by);return}
     const pick=document.createElement('input');pick.type='file';pick.accept='.mp4,.mov,video/mp4,video/quicktime';
     const send=document.createElement('button');send.type='button';send.className='smallbutton';send.textContent='Attach video to this job';
     send.addEventListener('click',async()=>{
@@ -447,28 +453,26 @@ function showAnalysis(data){
     const box=document.createElement('div');box.style.cssText='margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px';
     const out=document.createElement('div');out.style.cssText='white-space:pre-wrap;font-size:12px;margin:0;flex-basis:100%';
     const tfile=document.createElement('input');tfile.type='file';tfile.accept='.txt,.md,.vtt,.srt';
-    const tbtn=document.createElement('button');tbtn.type='button';tbtn.className='smallbutton';tbtn.textContent='Attach transcript';
-    tbtn.addEventListener('click',async()=>{
-      const f=tfile.files[0];if(!f){out.textContent='Choose a TXT, MD, VTT or SRT transcript first';return}
-      try{const r=await api('/api/jobs/'+job+'/transcript',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name),'Content-Type':'application/octet-stream'},body:f});
-        const t=r.transcript;out.textContent='Transcript attached: '+t.word_count+' words'+(t.timed?'':' (no timestamps, so it can support what is said but not when)');
-      }catch(e){out.textContent=errorMessage(e)}});
+    const tbtn=document.createElement('button');tbtn.type='button';tbtn.className='smallbutton';tbtn.textContent='Attach captions & re-score';
+    tbtn.addEventListener('click',()=>runScore(tfile.files[0]||null));
     const pbtn=document.createElement('button');pbtn.type='button';pbtn.className='smallbutton';pbtn.textContent='Platform fit';
     pbtn.addEventListener('click',async()=>{
       try{const r=await api('/api/jobs/'+job+'/platform-fit');
         out.textContent='Platform fit (advisory, from public spec pages; not a prediction of reach)\n'+r.findings.filter(f=>f.check!=='source_gap'||f.confidence==='none').map(f=>'• '+f.label+' · '+f.check+' · '+f.status+' — '+f.detail).join('\n');
       }catch(e){out.textContent=errorMessage(e)}});
     const cost=document.createElement('input');cost.type='number';cost.min='0.01';cost.step='0.01';cost.value='1';cost.title='Most you allow this run to cost, in USD';cost.style.width='80px';
-    const sbtn=document.createElement('button');sbtn.type='button';sbtn.className='smallbutton';sbtn.textContent='Score this video';
-    sbtn.addEventListener('click',async()=>{
-      try{const g=await api('/api/jobs/'+job+'/score');
-        if(g.status==='scored'||g.status==='partial'){show(out,formatScore(g));return}
-        if(g.status==='running'){watchRun('/api/jobs/'+job+'/score',out,'Scoring',formatScore);return}
-        if(g.status==='failed'){out.textContent='The last scoring run failed: '+(g.error||'unknown error')+'\nPress Score again to retry.';}
+    const runScore=async(file)=>{
+      try{
+        if(file){
+          const r=await api('/api/jobs/'+job+'/transcript',{method:'POST',headers:{'X-Filename':encodeURIComponent(file.name),'Content-Type':'application/octet-stream'},body:file});
+          out.textContent='Captions attached: '+r.transcript.word_count+' words'+(r.transcript.timed?'':' (no timestamps)')+'. Starting the score…';
+        }
         const r=await api('/api/jobs/'+job+'/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_max_usd:Number(cost.value)})});
         watchRun('/api/jobs/'+job+'/score',out,'Scoring (cost up to $'+r.estimate.estimated_usd+')',formatScore);
-      }catch(e){const m=errorMessage(e);out.textContent=/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press Score again. This is a ceiling, not a charge.':m}});
-    box.append(document.createTextNode('Transcript:'),tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,sbtn,out);
+      }catch(e){const m=errorMessage(e);out.textContent=/disabled/i.test(m)?m+' (Scoring stays off until the owner enables it and sets a spending cap.)':/confirm_max_usd/.test(m)?'Type the most you allow this run to cost, in dollars (for example 1), in the Max cost box, then press Re-score. This is a ceiling, not a charge.':/already being scored/i.test(m)?'A score is already running for this video. This page will show it.':m}
+    };
+    box.append(document.createTextNode('Captions:'),tfile,tbtn,pbtn,document.createTextNode('Max cost USD:'),cost,out);
+    if(state.auto&&state.auto.job===job&&!state.auto.started){state.auto.started=true;cost.value=state.auto.cost;out.textContent='Analysis finished. Starting the score…';runScore(state.auto.file)}
     const pk=document.createElement('div');pk.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:8px;flex-basis:100%';
     const pfile=document.createElement('input');pfile.type='file';pfile.accept='image/png,image/jpeg,image/webp';pfile.title='Thumbnail image (PNG, JPG or WebP, up to 5 MB)';
     const ptitle=document.createElement('input');ptitle.type='text';ptitle.maxLength=150;ptitle.placeholder='Video title';ptitle.style.cssText='flex:1;min-width:150px';
@@ -637,7 +641,7 @@ async function submitAnalysis(which){
         headers:{'X-Filename':encodeURIComponent(f.name),'X-MVI-Context':encodeURIComponent(JSON.stringify(context())),
           'Content-Type':f.type||'application/octet-stream'},body:f});
     }
-    state.analysis=data.job_id;showAnalysis(data);pollAnalysis(data.job_id);
+    state.analysis=data.job_id;state.auto={job:data.job_id,file:$('analysis-captions').files[0]||null,cost:$('analysis-cost').value||'1',started:false};showAnalysis(data);pollAnalysis(data.job_id);
   }catch(e){status('analysis',errorMessage(e),true);tag('analysis','error')}
   finally{busy(button,false)}
 }
