@@ -44,7 +44,7 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
 
     def test_rejects_premium_above_cap(self):
         quote = fixture_quote()
-        expensive = OptionQuote(**{**quote.__dict__, "ask": 3.0, "bid": 2.95})
+        expensive = OptionQuote(**{**quote.__dict__, "ask": 6.0, "bid": 5.90})
         reasons = validate_entry(expensive, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertIn("premium_above_cap", reasons)
 
