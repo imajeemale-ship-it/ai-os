@@ -25,6 +25,34 @@ ALPACA_SECRET_FILE = Path.home() / ".ai-os" / "secrets" / "alpaca.env"
 EASTERN = ZoneInfo("America/New_York")
 
 
+def credential_health() -> dict[str, Any]:
+    """Return sanitized read-only market-data credential availability."""
+    robinhood_token = bool(os.environ.get("ROBINHOOD_MCP_ACCESS_TOKEN"))
+    codex_credentials = Path.home() / ".codex" / ".credentials.json"
+    robinhood_codex = False
+    if codex_credentials.exists():
+        try:
+            saved = json.loads(codex_credentials.read_text(encoding="utf-8"))
+            robinhood_codex = any(
+                item.get("server_name") == "robinhood-trading" and item.get("access_token")
+                for item in saved.values()
+                if isinstance(item, dict)
+            )
+        except (OSError, json.JSONDecodeError):
+            robinhood_codex = False
+    alpaca_file = ALPACA_SECRET_FILE.exists()
+    alpaca_env = bool(
+        (os.environ.get("APCA_API_KEY_ID") or os.environ.get("ALPACA_API_KEY_ID"))
+        and (os.environ.get("APCA_API_SECRET_KEY") or os.environ.get("ALPACA_API_SECRET_KEY"))
+    )
+    return {
+        "robinhood_mcp": "available" if robinhood_token or robinhood_codex else "missing",
+        "alpaca": "available" if alpaca_file or alpaca_env else "missing",
+        "live_trading_allowed": False,
+        "secrets_exposed": False,
+    }
+
+
 class MarketDataUnavailable(RuntimeError):
     """Raised when a real market-data adapter cannot return a usable quote."""
 
@@ -72,9 +100,10 @@ class OptionQuote:
 
 @dataclass(frozen=True)
 class PaperPolicy:
-    max_premium: float = 250.0
+    max_premium: float = 500.0
     target_min_premium: float = 100.0
-    target_max_premium: float = 250.0
+    target_max_premium: float = 500.0
+    kelly_fraction: float = 0.25
     min_dte: int = 7
     max_dte: int = 21
     comparison_dte: int = 30
@@ -93,6 +122,64 @@ class PaperAccount:
     buying_power: float
     settled_cash: float
     open_positions: int = 0
+
+
+def fractional_kelly_fraction(
+    win_probability: float,
+    average_win_return: float,
+    average_loss_return: float,
+    fraction: float = 0.25,
+) -> float:
+    """Return a conservative Kelly bankroll fraction for a binary approximation.
+
+    Returns zero when the estimated edge is non-positive. Returns are expressed
+    as multiples of premium at risk: +0.5 means a 50% gain; 1.0 means a
+    complete premium loss. This is a sizing aid, not a profitability claim.
+    """
+    p = min(1.0, max(0.0, win_probability))
+    q = 1.0 - p
+    win = max(0.0, average_win_return)
+    loss = max(1e-9, average_loss_return)
+    if win <= 0 or not 0.0 < fraction <= 1.0:
+        return 0.0
+    full_kelly = ((p * win) - (q * loss)) / (win * loss)
+    return round(max(0.0, full_kelly) * fraction, 6)
+
+
+def assess_position_size(
+    account: PaperAccount,
+    policy: PaperPolicy,
+    win_probability: float | None,
+    average_win_return: float = 0.50,
+    average_loss_return: float = 1.0,
+) -> dict[str, Any]:
+    """Translate measured edge into a capped premium budget."""
+    if win_probability is None:
+        return {
+            "status": "unscored_edge",
+            "reason": "historical_win_probability_required",
+            "recommended_premium": None,
+            "kelly_fraction": policy.kelly_fraction,
+            "hard_cap": policy.max_premium,
+        }
+    fraction = fractional_kelly_fraction(
+        win_probability,
+        average_win_return,
+        average_loss_return,
+        policy.kelly_fraction,
+    )
+    recommended = round(min(policy.max_premium, account.settled_cash * fraction), 2)
+    return {
+        "status": "sized",
+        "win_probability": win_probability,
+        "average_win_return": average_win_return,
+        "average_loss_return": average_loss_return,
+        "kelly_fraction": policy.kelly_fraction,
+        "bankroll_fraction": fraction,
+        "recommended_premium": recommended,
+        "hard_cap": policy.max_premium,
+        "max_loss_assumption": "entire_option_premium_plus_costs",
+    }
 
 
 @dataclass(frozen=True)
@@ -188,6 +275,15 @@ def validate_entry(quote: OptionQuote, account: PaperAccount, policy: PaperPolic
         reasons.append("premium_below_target")
     if not policy.min_dte <= quote.dte <= policy.max_dte:
         reasons.append("dte_outside_primary_window")
+    if quote.source.startswith(("alpaca_", "robinhood_")):
+        try:
+            expiration_date = datetime.fromisoformat(str(quote.expiration).replace("Z", "+00:00")).date()
+        except ValueError:
+            expiration_date = None
+        if expiration_date is None:
+            reasons.append("expiration_missing_or_invalid")
+        elif expiration_date < datetime.now(EASTERN).date():
+            reasons.append("contract_expired")
     if quote.ask <= 0 or quote.bid <= 0 or quote.bid > quote.ask:
         reasons.append("invalid_quote")
     spread_pct = quote.spread / quote.mid if quote.mid else 1.0
@@ -267,9 +363,19 @@ def paper_trade_cycle(
     exit_bid: float | None = None,
     ledger_path: str | Path | None = None,
     persist: bool = True,
+    estimated_win_probability: float | None = None,
+    average_win_return: float = 0.50,
+    average_loss_return: float = 1.0,
 ) -> dict[str, Any]:
     active_policy = policy or PaperPolicy()
     entry_rejections = validate_entry(quote, account, active_policy)
+    sizing = assess_position_size(
+        account,
+        active_policy,
+        estimated_win_probability,
+        average_win_return,
+        average_loss_return,
+    )
     record: dict[str, Any] = {
         "record_type": "paper_options_cycle",
         "created_at": utc_now(),
@@ -278,6 +384,7 @@ def paper_trade_cycle(
         "quote": asdict(quote),
         "policy": asdict(active_policy),
         "entry_rejections": entry_rejections,
+        "sizing": sizing,
         "exercise_gate": exercise_affordability(quote, account),
     }
     if entry_rejections:
@@ -353,7 +460,12 @@ def notify_paper_event(record: dict[str, Any]) -> bool:
         message = f"ROBINHOOD PAPER AGENT ERROR: {record.get('error')}"
     else:
         reasons = ", ".join(record.get("entry_rejections") or ["unknown_reason"])
-        message = f"{basket}NO PAPER TRADE: {reasons}. The agent stayed in cash."
+        health = record.get("credential_health") or {}
+        blocked = record.get("mode") == "paper_only_real_data_blocked"
+        suffix = " Data status: " + ", ".join(
+            f"{name}={health.get(name, 'unknown')}" for name in ("robinhood_mcp", "alpaca")
+        ) if health and (blocked or "missing" in health.values()) else ""
+        message = f"{basket}NO PAPER TRADE: {reasons}. The agent stayed in cash.{suffix}"
     return send_telegram_alert(message)
 
 
@@ -567,6 +679,17 @@ class RobinhoodMCPDataAdapter:
         sma20 = sum(closes[-20:]) / 20
         sma50 = sum(closes[-50:]) / 50
         prior_high20 = max(highs[-20:])
+        prior_low20 = min(closes[-20:])
+        swing_range = prior_high20 - prior_low20
+        fib_levels = {
+            "23.6": round(prior_high20 - swing_range * 0.236, 4),
+            "38.2": round(prior_high20 - swing_range * 0.382, 4),
+            "50.0": round(prior_high20 - swing_range * 0.500, 4),
+            "61.8": round(prior_high20 - swing_range * 0.618, 4),
+            "78.6": round(prior_high20 - swing_range * 0.786, 4),
+        }
+        nearest_fib = min(fib_levels.items(), key=lambda item: abs(current_price - item[1]))
+        fib_confluence = abs(current_price - nearest_fib[1]) / current_price <= 0.015
         breakout = current_price >= prior_high20 * 1.001
         established_uptrend = sma20 > sma50 and closes[-1] > sma50
         pullback = established_uptrend and sma20 * 0.98 <= current_price <= sma20 * 1.02
@@ -574,6 +697,11 @@ class RobinhoodMCPDataAdapter:
             "sma20": round(sma20, 4),
             "sma50": round(sma50, 4),
             "prior_high20": round(prior_high20, 4),
+            "prior_low20": round(prior_low20, 4),
+            "fib_levels": fib_levels,
+            "nearest_fib_level": nearest_fib[0],
+            "nearest_fib_price": nearest_fib[1],
+            "fib_confluence": fib_confluence,
             "breakout_continuation": breakout,
             "established_uptrend": established_uptrend,
             "pullback_continuation": pullback,
@@ -1057,6 +1185,8 @@ def render_cycle_report(record: dict[str, Any]) -> str:
         lines.extend([
             f"20/50-day averages: {context['sma20']:.2f} / {context['sma50']:.2f}",
             f"Prior 20-day high: {context['prior_high20']:.2f}",
+            f"Nearest Fibonacci retracement: {context.get('nearest_fib_level', 'n/a')}% at " + "$" + f"{context.get('nearest_fib_price', 0):.2f}",
+            f"Fibonacci confluence: {'yes' if context.get('fib_confluence') else 'no'} (experimental evidence only)",
         ])
     if record.get("due_diligence"):
         diligence = record["due_diligence"]

@@ -15,6 +15,7 @@ from ai_os.robinhood_options import (
     RobinhoodMCPDataAdapter,
     _normalize_symbols,
     append_ledger,
+    credential_health,
     latest_open_position,
     market_session,
     paper_trade_cycle,
@@ -44,6 +45,35 @@ BASKETS = {
 
 def strategy_allowed(matches: list[str], allowed: set[str]) -> bool:
     return bool(set(matches) & allowed)
+
+
+def strategy_decision(basket: str, matches: list[str], context: dict[str, Any]) -> dict[str, Any]:
+    """Record the setup decision separately from deterministic contract selection."""
+    priority = (
+        ["breakout_continuation", "pullback_continuation_uptrend",
+         "dean_ahrens_unusual_flow_proxy"]
+        if basket == "core_trend"
+        else ["dean_ahrens_unusual_flow_proxy",
+              "pullback_continuation_uptrend", "breakout_continuation"]
+    )
+    selected = next((name for name in priority if name in matches), None)
+    return {
+        "decision_layer": "strategy_selection",
+        "selector": "deterministic_rules_v1",
+        "basket": basket,
+        "selected_strategy": selected,
+        "eligible_strategies": [name for name in priority if name in matches],
+        "direction": "bullish_call" if selected else "none",
+        "evidence": {
+            "established_uptrend": bool(context.get("established_uptrend")),
+            "breakout_continuation": bool(context.get("breakout_continuation")),
+            "pullback_continuation": bool(context.get("pullback_continuation")),
+            "fib_confluence": bool(context.get("fib_confluence")),
+            "nearest_fib_level": context.get("nearest_fib_level"),
+        },
+        "ai_strategy_choice": None,
+        "ai_status": "deferred_until_decision_schema_has_forward_baseline",
+    }
 
 
 def candidate_confirmed(basket: str, matches: list[str], context: dict[str, Any]) -> bool:
@@ -126,6 +156,7 @@ def run_basket(
         "exit_rule": config["exit_rule"],
         "max_holding_days": config["max_holding_days"],
         "market_session": asdict(session),
+        "credential_health": credential_health(),
     }
     if PAUSE_FILE.exists():
         record = {**base, "status": "rejected", "entry_rejections": ["paper_entries_paused_by_owner"], "quote": None, "order": None}
@@ -199,6 +230,19 @@ def run_basket(
     record["due_diligence"] = ranked[0]["due_diligence"]
     record["strategy_matches"] = data.strategy_matches.get(instrument_id, [])
     record["strategy_context"] = data.strategy_contexts.get(selected.symbol)
+    record["strategy_decision"] = strategy_decision(
+        basket,
+        record["strategy_matches"],
+        record["strategy_context"] or {},
+    )
+    record["contract_selection"] = {
+        "decision_layer": "contract_validation_and_selection",
+        "selector": "deterministic_rank_candidates_v1",
+        "selected_instrument": selected.source,
+        "selected_contract": f"{selected.symbol} {selected.expiration} {selected.strike}C",
+        "budget": {"min_premium": config["policy"].target_min_premium, "max_premium": config["policy"].target_max_premium},
+        "validation": record.get("due_diligence", {}),
+    }
     record["directional_signal"] = data.directional_signals.get(selected.symbol)
     record["candidate_rankings"] = [item["due_diligence"] for item in ranked[:5]]
     record["rejected_symbols"] = rejected
@@ -212,4 +256,8 @@ def run_basket(
 
 
 def run_research_baskets(symbols: str | list[str]) -> dict[str, dict[str, Any]]:
-    return {name: run_basket(name, symbols) for name in BASKETS}
+    results = {name: run_basket(name, symbols) for name in BASKETS}
+    # Shadow comparison is isolated from funded paper baskets and never opens a position.
+    from ai_os.robinhood_strategy_comparison import run_strategy_comparison
+    results["strategy_comparison"] = run_strategy_comparison(symbols)
+    return results
