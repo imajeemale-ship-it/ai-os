@@ -124,7 +124,6 @@ class PaperAccount:
     open_positions: int = 0
 
 
-@dataclass(frozen=True)
 def fractional_kelly_fraction(
     win_probability: float,
     average_win_return: float,
@@ -183,6 +182,7 @@ def assess_position_size(
     }
 
 
+@dataclass(frozen=True)
 class ExitRule:
     profit_target_pct: float
     loss_limit_pct: float
