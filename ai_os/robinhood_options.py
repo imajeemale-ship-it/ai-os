@@ -100,9 +100,10 @@ class OptionQuote:
 
 @dataclass(frozen=True)
 class PaperPolicy:
-    max_premium: float = 250.0
+    max_premium: float = 500.0
     target_min_premium: float = 100.0
-    target_max_premium: float = 250.0
+    target_max_premium: float = 500.0
+    kelly_fraction: float = 0.25
     min_dte: int = 7
     max_dte: int = 21
     comparison_dte: int = 30
@@ -124,6 +125,64 @@ class PaperAccount:
 
 
 @dataclass(frozen=True)
+def fractional_kelly_fraction(
+    win_probability: float,
+    average_win_return: float,
+    average_loss_return: float,
+    fraction: float = 0.25,
+) -> float:
+    """Return a conservative Kelly bankroll fraction for a binary approximation.
+
+    Returns zero when the estimated edge is non-positive. Returns are expressed
+    as multiples of premium at risk: +0.5 means a 50% gain; 1.0 means a
+    complete premium loss. This is a sizing aid, not a profitability claim.
+    """
+    p = min(1.0, max(0.0, win_probability))
+    q = 1.0 - p
+    win = max(0.0, average_win_return)
+    loss = max(1e-9, average_loss_return)
+    if win <= 0 or not 0.0 < fraction <= 1.0:
+        return 0.0
+    full_kelly = ((p * win) - (q * loss)) / (win * loss)
+    return round(max(0.0, full_kelly) * fraction, 6)
+
+
+def assess_position_size(
+    account: PaperAccount,
+    policy: PaperPolicy,
+    win_probability: float | None,
+    average_win_return: float = 0.50,
+    average_loss_return: float = 1.0,
+) -> dict[str, Any]:
+    """Translate measured edge into a capped premium budget."""
+    if win_probability is None:
+        return {
+            "status": "unscored_edge",
+            "reason": "historical_win_probability_required",
+            "recommended_premium": None,
+            "kelly_fraction": policy.kelly_fraction,
+            "hard_cap": policy.max_premium,
+        }
+    fraction = fractional_kelly_fraction(
+        win_probability,
+        average_win_return,
+        average_loss_return,
+        policy.kelly_fraction,
+    )
+    recommended = round(min(policy.max_premium, account.settled_cash * fraction), 2)
+    return {
+        "status": "sized",
+        "win_probability": win_probability,
+        "average_win_return": average_win_return,
+        "average_loss_return": average_loss_return,
+        "kelly_fraction": policy.kelly_fraction,
+        "bankroll_fraction": fraction,
+        "recommended_premium": recommended,
+        "hard_cap": policy.max_premium,
+        "max_loss_assumption": "entire_option_premium_plus_costs",
+    }
+
+
 class ExitRule:
     profit_target_pct: float
     loss_limit_pct: float
@@ -304,9 +363,19 @@ def paper_trade_cycle(
     exit_bid: float | None = None,
     ledger_path: str | Path | None = None,
     persist: bool = True,
+    estimated_win_probability: float | None = None,
+    average_win_return: float = 0.50,
+    average_loss_return: float = 1.0,
 ) -> dict[str, Any]:
     active_policy = policy or PaperPolicy()
     entry_rejections = validate_entry(quote, account, active_policy)
+    sizing = assess_position_size(
+        account,
+        active_policy,
+        estimated_win_probability,
+        average_win_return,
+        average_loss_return,
+    )
     record: dict[str, Any] = {
         "record_type": "paper_options_cycle",
         "created_at": utc_now(),
@@ -315,6 +384,7 @@ def paper_trade_cycle(
         "quote": asdict(quote),
         "policy": asdict(active_policy),
         "entry_rejections": entry_rejections,
+        "sizing": sizing,
         "exercise_gate": exercise_affordability(quote, account),
     }
     if entry_rejections:
