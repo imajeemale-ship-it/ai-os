@@ -22,6 +22,8 @@ from ai_os.robinhood_options import (
     run_fixture_cycle,
     due_diligence_score,
     credential_health,
+    assess_position_size,
+    fractional_kelly_fraction,
     rank_candidates,
     save_cycle_report,
     validate_entry,
@@ -46,6 +48,35 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
         reasons = validate_entry(expensive, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertIn("premium_above_cap", reasons)
 
+    def test_new_paper_cap_is_500_dollars(self):
+        self.assertEqual(PaperPolicy().max_premium, 500.0)
+
+    def test_fractional_kelly_sizes_even_money_edge_conservatively(self):
+        self.assertAlmostEqual(fractional_kelly_fraction(0.60, 1.0, 1.0, 0.25), 0.05)
+        self.assertEqual(fractional_kelly_fraction(0.50, 1.0, 1.0, 0.25), 0.0)
+
+    def test_position_size_uses_fractional_kelly_and_hard_cap(self):
+        sizing = assess_position_size(
+            PaperAccount(buying_power=5000, settled_cash=5000),
+            PaperPolicy(),
+            win_probability=0.75,
+            average_win_return=0.50,
+            average_loss_return=1.0,
+        )
+        self.assertEqual(sizing["status"], "sized")
+        self.assertEqual(sizing["recommended_premium"], 312.50)
+        self.assertEqual(sizing["hard_cap"], 500.0)
+
+    def test_position_size_requires_measured_edge(self):
+        sizing = assess_position_size(
+            PaperAccount(buying_power=5000, settled_cash=5000),
+            PaperPolicy(),
+            win_probability=None,
+        )
+        self.assertEqual(sizing["status"], "unscored_edge")
+        self.assertIsNone(sizing["recommended_premium"])
+
+
     def test_rejects_wide_spread_and_thin_liquidity(self):
         quote = fixture_quote()
         thin = OptionQuote(**{**quote.__dict__, "bid": 1.0, "ask": 1.5, "volume": 10, "open_interest": 20})
@@ -56,7 +87,7 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
 
     def test_rejects_estimated_fill_above_total_budget(self):
         quote = fixture_quote()
-        near_cap = OptionQuote(**{**quote.__dict__, "bid": 2.40, "ask": 2.45})
+        near_cap = OptionQuote(**{**quote.__dict__, "bid": 4.90, "ask": 5.00})
         reasons = validate_entry(near_cap, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertIn("estimated_fill_above_premium_cap", reasons)
 
