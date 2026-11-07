@@ -675,6 +675,9 @@ function showLearning(data) {
     status('learning',message);
   } else status('learning',data.status==='failed'?'Intake failed: '+(data.error||'unknown error'):
     (data.status==='queued'?'Waiting in line':'Reading the lesson')+' · '+left(typicalRun('Teaching'),lclockElapsed(data.job_id)),data.status==='failed');
+  if(data.status==='failed'&&/captions unavailable/i.test(data.error||'')){
+    status('learning','YouTube would not hand the captions to MVI (it blocks automated downloads from servers). Nothing is wrong with your link. Paste the transcript below instead.',true);
+    $('learning-summary').hidden=true;showCaptionFallback();return}
   const sum=$('learning-summary');sum.hidden=false;
   const activeL=!['completed','failed'].includes(data.status);
   if(activeL){if(!lclock||lclock.job!==data.job_id)lclock={job:data.job_id,start:Date.now(),last:''};drawLearning()}
@@ -704,6 +707,25 @@ function showLearning(data) {
     box.append(label,quote,choices);area.append(box);
   }
 }
+let lastLearnUrl='';
+function lessonName(){const m=lastLearnUrl.match(/(?:v=|youtu\.be\/|shorts\/)([\w-]{6,})/);return 'YouTube lesson '+(m?m[1]:'pasted')+'.txt'}
+function showCaptionFallback(){
+  const area=$('learning-cards');area.replaceChildren();
+  const box=h('div','kbanner');
+  box.append(h('b',null,'Paste the transcript instead (free, takes 20 seconds)'),
+    h('p','muted','On the YouTube video: tap the description, then "Show transcript", select all the text and copy it. Or use a caption file (SRT/VTT/TXT) from your editor.'));
+  const ta=document.createElement('textarea');ta.rows=5;ta.style.cssText='width:100%;box-sizing:border-box';ta.placeholder='Paste the transcript here';
+  const go=h('button','smallbutton','Teach from pasted text');go.type='button';
+  const pick=document.createElement('input');pick.type='file';pick.accept='.txt,.md,.vtt,.srt';
+  const go2=h('button','smallbutton','Teach from caption file');go2.type='button';
+  const send=async(blob,name,btn)=>{btn.disabled=true;try{
+    const data=await api('/api/learn/upload',{method:'POST',headers:{'X-Filename':encodeURIComponent(name),'Content-Type':'application/octet-stream'},body:blob});
+    state.learning=data.job_id;lclock={job:data.job_id,start:Date.now(),last:''};area.replaceChildren();showLearning(data);pollLearning(data.job_id);
+  }catch(e){status('learning',errorMessage(e),true);btn.disabled=false}};
+  go.addEventListener('click',()=>{const t=ta.value.trim();if(t.length<200){status('learning','Paste the full transcript first (it looks too short).',true);return}send(new Blob([t],{type:'text/plain'}),lessonName(),go)});
+  go2.addEventListener('click',()=>{const f=pick.files[0];if(!f){status('learning','Choose a caption file first.',true);return}send(f,f.name,go2)});
+  box.append(ta,go,pick,go2);area.append(box);
+}
 let lclock=null;
 function lclockElapsed(job){return lclock&&lclock.job===job?(Date.now()-lclock.start)/1000:0}
 function drawLearning(){if(!lclock)return;const sum=$('learning-summary');const eta=typicalRun('Teaching');const e=(Date.now()-lclock.start)/1000;
@@ -724,7 +746,7 @@ async function submitLearning(which){
     if(which==='link'){
       const url=$('learning-url').value.trim();
       if(!url)throw new Error('Paste a teaching video URL first');
-      data=await api('/api/learn/url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+      lastLearnUrl=url;data=await api('/api/learn/url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
     } else {
       const f=$('learning-file').files[0];if(!f)throw new Error('Choose a teaching video or transcript first');
       data=await api('/api/learn/upload',{method:'POST',
