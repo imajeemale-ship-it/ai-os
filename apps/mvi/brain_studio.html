@@ -598,7 +598,7 @@ function waitText(data){
   if(data.status==='queued'){parts.push(q.queued_ahead>0?q.queued_ahead+' ahead of you':'next up');if(q.running_now)parts.push(q.running_now+' running now')}
   return parts.join(' · ');
 }
-const DEFAULT_SEC={Analyzing:180,Scoring:60,Judging:30};
+const DEFAULT_SEC={Analyzing:180,Scoring:60,Judging:30,Teaching:60};
 function etaSeconds(data){const q=data.queue||{};const t=q.typical_seconds||typicalRun('Analyzing')||DEFAULT_SEC.Analyzing;return t*(data.status==='queued'?(q.queued_ahead||0)+1:1)}
 function left(eta,elapsed){if(eta==null)return fmt(elapsed)+' elapsed';const r=eta-elapsed;return r>0?fmt(r)+' left':'finishing up, a little longer than usual…'}
 function timerNode(what,eta,elapsed){const w=h('div','timer');const r=eta==null?null:eta-elapsed;
@@ -674,8 +674,12 @@ function showLearning(data) {
     else message='Extracted '+count+' possible lessons. Review each before approval.';
     status('learning',message);
   } else status('learning',data.status==='failed'?'Intake failed: '+(data.error||'unknown error'):
-    'Learning job '+(data.job_id||'').slice(0,8)+'… · '+data.status,data.status==='failed');
+    (data.status==='queued'?'Waiting in line':'Reading the lesson')+' · '+left(typicalRun('Teaching'),lclockElapsed(data.job_id)),data.status==='failed');
   const sum=$('learning-summary');sum.hidden=false;
+  const activeL=!['completed','failed'].includes(data.status);
+  if(activeL){if(!lclock||lclock.job!==data.job_id)lclock={job:data.job_id,start:Date.now(),last:''};drawLearning()}
+  else{if(lclock&&lclock.job===data.job_id){if(data.status==='completed')saveRun('Teaching',(Date.now()-lclock.start)/1000);lclock=null}}
+  if(activeL){$('learning-cards').replaceChildren();return}
   sum.textContent=data.status==='completed'?
     ('Source: '+(data.source?.title||data.source?.url||'Uploaded file')+
      '\nTranscript: '+(data.transcript_characters||0).toLocaleString()+' characters'+
@@ -700,6 +704,11 @@ function showLearning(data) {
     box.append(label,quote,choices);area.append(box);
   }
 }
+let lclock=null;
+function lclockElapsed(job){return lclock&&lclock.job===job?(Date.now()-lclock.start)/1000:0}
+function drawLearning(){if(!lclock)return;const sum=$('learning-summary');const eta=typicalRun('Teaching');const e=(Date.now()-lclock.start)/1000;
+  const k=eta==null?fmt(e):(eta-e>0?fmt(eta-e):'x');if(k===lclock.last)return;lclock.last=k;sum.hidden=false;sum.replaceChildren(timerNode('Reading the lesson and pulling out the teaching points',eta,e))}
+setInterval(drawLearning,250);
 async function pollLearning(id,once=false){
   if(state.learning!==id)return;
   try{
@@ -721,7 +730,7 @@ async function submitLearning(which){
       data=await api('/api/learn/upload',{method:'POST',
         headers:{'X-Filename':encodeURIComponent(f.name),'Content-Type':f.type||'application/octet-stream'},body:f});
     }
-    state.learning=data.job_id;showLearning(data);pollLearning(data.job_id);
+    state.learning=data.job_id;lclock={job:data.job_id,start:Date.now(),last:''};showLearning(data);pollLearning(data.job_id);
   }catch(e){status('learning',errorMessage(e),true);tag('learning','error')}
   finally{busy(button,false)}
 }
