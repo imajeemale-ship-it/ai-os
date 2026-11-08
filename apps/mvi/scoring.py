@@ -12,6 +12,8 @@ from pathlib import Path
 
 import frames as framelib
 import trends as trendlib
+import tvq as tvqlib
+import visual_quality as vq
 import platforms as platformlib
 import rubric
 import transcript as transcriptlib
@@ -20,6 +22,8 @@ from vindex_adapter import RUBRIC
 
 FRAME_WIDTH = 768
 PER_IMAGE_TOKENS = int(FRAME_WIDTH * (FRAME_WIDTH * 9 / 16) / 750)
+VISUAL_FRAMES, VISUAL_WIDTH = 16, 1024
+PER_VISUAL_IMAGE_TOKENS = int(VISUAL_WIDTH * (VISUAL_WIDTH * 9 / 16) / 750)
 
 
 def _float(name, default=0.0):
@@ -48,6 +52,9 @@ def estimate_usd(frame_count, transcript_chars, g=None):
     g = g or gate()
     tokens_in = frame_count * PER_IMAGE_TOKENS + transcript_chars // 4 + 7000  # + rubric, principles and trend packet
     tokens_out = 4000  # equals the judge's max_tokens, so the estimate is an upper bound on output
+    # second call: Technical Visual Quality (frames at phone size plus pixel measurements and the transcript)
+    tokens_in += VISUAL_FRAMES * PER_VISUAL_IMAGE_TOKENS + transcript_chars // 4 + 4500
+    tokens_out += 6000
     usd = (tokens_in * g['price_in'] + tokens_out * g['price_out']) / 1_000_000
     return {'tokens_in': tokens_in, 'tokens_out': tokens_out, 'estimated_usd': round(usd, 4)}
 
@@ -135,7 +142,7 @@ def _validate(judgments, available, duration, principle_ids=frozenset()):
 
 
 def score_video(video, technical, timeline, job_dir, judge, *, max_usd, platforms=None, frame_count=24,
-                video_hash=None, context=None, trends=None, principles=None, now=None):
+                video_hash=None, context=None, trends=None, principles=None, now=None, visual_cap_override=False):
     duration = float(technical['duration_seconds'])
     jdir = Path(job_dir)
     tr = load_transcript(jdir)
@@ -158,6 +165,27 @@ def score_video(video, technical, timeline, job_dir, judge, *, max_usd, platform
                   'trends': trends,
                   'frames': fr, 'transcript_text': transcriptlib.as_prompt_text(tr) if tr else ''}
         judged = judge.judge(packet)
+        tr_text = transcriptlib.as_prompt_text(tr) if tr else ''
+        vis_measured, vis_judged, vis_usage, vis_errors = None, None, None, []
+        try:
+            vis_measured = vq.measure(video, duration)
+        except Exception as exc:
+            vis_errors.append('pixel measurement failed: ' + str(exc)[:160])
+        if vis_measured is None and not vis_errors:
+            vis_errors.append('pixel measurement needs at least %d decodable frames' % vq.MIN_FRAMES)
+        if hasattr(judge, 'judge_visual'):
+            try:
+                vfr = framelib.sample(video, Path(tmp) / 'visual', duration, VISUAL_FRAMES, VISUAL_WIDTH)
+                vis_judged = judge.judge_visual({
+                    'facts': {'duration_seconds': duration, 'editorial_context': context or {},
+                              'transcript_stats': transcriptlib.stats(tr, duration) if tr else None},
+                    'measurements': {k: v for k, v in (vis_measured or {}).items() if k != 'issues'},
+                    'frames': vfr, 'transcript_text': tr_text})
+                vis_usage = (vis_judged or {}).get('_usage')
+            except Exception as exc:
+                vis_errors.append('visual judge failed: ' + str(exc)[:160])
+        else:
+            vis_errors.append('visual judge unavailable')
     available = set()
     if fr: available.add('frames')
     if tr: available.add('transcript')
@@ -174,15 +202,31 @@ def score_video(video, technical, timeline, job_dir, judge, *, max_usd, platform
         card['categories'][key]['reason'] = why
     knowledge = card['content_quality_score']
     trend_pct = None if trend_result is None else round(trend_result['points'] / TREND_MAX * 100, 1)
-    overall = None if knowledge is None or trend_pct is None else round(KNOWLEDGE_WEIGHT * knowledge + TREND_WEIGHT * trend_pct, 1)
+    tvq_res = tvqlib.build(vis_judged, vis_measured, tr_text, duration, bool(tr))
+    if vis_errors:
+        tvq_res['errors'] = vis_errors
+    game = (context or {}).get('game')
+    w_vis = tvqlib.weight_for(game)
+    base = None if knowledge is None or trend_pct is None else KNOWLEDGE_WEIGHT * knowledge + TREND_WEIGHT * trend_pct
+    overall, adjustments, before = None, [], None
+    if base is not None and tvq_res['score'] is not None:
+        before = round((1 - w_vis) * base + w_vis * tvq_res['score'], 1)
+        overall, adjustments = tvqlib.adjust(before, tvq_res, w_vis, visual_cap_override)
     recommendation = 'PENDING_REVIEW' if overall is None else ('PUBLISH' if overall >= 85 else 'REVISE' if overall >= 65 else 'REWORK')
     caveats = ['Draft rubric: weights and cutoffs are unvalidated until calibrated against human scores.',
                'A model judged this; treat it as a second opinion for the editor, not a ground truth.',
-               'Trend fit is a dated snapshot of public popularity, 20% of the overall score. It is not knowledge of any platform algorithm.']
+               'Trend fit is a dated snapshot of public popularity, %d%% of the overall score. It is not knowledge of any platform algorithm.' % round(TREND_WEIGHT * (1 - w_vis) * 100),
+               'Technical Visual Quality is %d%% of the overall score (%s). Its pixel measurements and caps are drafts that have not been calibrated against real footage.'
+               % (round(w_vis * 100), 'visually driven content' if w_vis == tvqlib.VISUAL_WEIGHT else 'default weight')]
+    if tvq_res['score'] is None:
+        caveats.append('Technical Visual Quality could not be fully evaluated, so there is no overall total yet.')
     if not principles:
         caveats.append('No approved principles were available: the knowledge part rests on the draft anchors only.')
     result = {'rubric': rubric.VERSION, 'status': 'scored' if overall is not None else 'partial',
-              'weights': {'knowledge': KNOWLEDGE_WEIGHT, 'trends': TREND_WEIGHT},
+              'weights': {'knowledge': round(KNOWLEDGE_WEIGHT * (1 - w_vis), 3), 'trends': round(TREND_WEIGHT * (1 - w_vis), 3),
+                          'technical_visual_quality': w_vis},
+              'technical_visual_quality': tvq_res, 'overall_before_adjustments': before, 'adjustments': adjustments,
+              'visual_usage': vis_usage,
               'knowledge_score': knowledge, 'trend_fit': trend_result if trend_result else {'status': 'not_evaluated', 'reason': trend_note},
               'trend_fit_percent': trend_pct, 'overall_score': overall, 'recommendation': recommendation,
               'scorecard': card, 'inputs': sorted(available), 'estimate': est,

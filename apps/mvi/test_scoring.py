@@ -86,9 +86,20 @@ class ValidateTests(unittest.TestCase):
    kept,notes=scoring._validate(junk,self.ALL,10);self.assertEqual(kept,{})
 
 
+def visual_out(score=90,**overrides):
+ """A well-formed Technical Visual Quality judgment with every subscore at `score`."""
+ import visual_quality as vq
+ out={'subscores':{k:{'score':score,'observation':'looks fine at phone size'} for k in vq.WEIGHTS},
+      'intentional_style':[],'issues':[],'evidence_visibility_failures':[],'summary':'ok',
+      'strongest_visual_quality':'x','weakest_visual_quality':'y','highest_priority_fix':'z'}
+ if score<70:    # the judge must back every low subscore with a timestamped issue
+  out['issues']=[{'timestamp_start':1.0,'timestamp_end':2.0,'issue':'problem','subcategory':k,'severity':'Medium','impact':'hurts','recommended_fix':'fix it'} for k in vq.WEIGHTS]
+ out.update(overrides);return out
+
 class FakeJudge:
- def __init__(self,out):self.out=out;self.packets=[]
+ def __init__(self,out,visual=None):self.out=out;self.packets=[];self.visual=visual_out() if visual is None else visual;self.visual_packets=[]
  def judge(self,packet):self.packets.append(packet);return self.out
+ def judge_visual(self,packet):self.visual_packets.append(packet);return self.visual
 
 def make_clip(path,seconds=6):
  subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=160x90:rate=10',

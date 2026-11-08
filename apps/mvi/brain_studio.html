@@ -172,6 +172,7 @@ h2{font-size:21px;margin:5px 0 12px}
 .timer .big{font-size:38px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--left)}.timer .big.wait{font-size:26px;color:#ffc66b}
 .timer .tl{font-size:15px;font-weight:800}.timer small{flex-basis:100%;color:var(--muted);font-size:11px}
 #analysis-status{font-weight:800}
+.sechead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px}.sechead b{font-size:15px}
 .weight{font-size:11px;color:var(--muted);margin-top:-4px}
 .cat-foot{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pid{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
@@ -525,14 +526,14 @@ function ring(value,max,label,pending){
   const in_=h('div','ring-in');in_.append(h('b',null,pending?'—':String(value)),h('small',null,pending?'pending':'/ '+max));w.append(in_);
   const box=h('div','ringbox');box.append(w,h('span','ringlabel',label));return box;
 }
-function catCard(k,c,share){
+function catCard(k,c,share,shareLabel){
   const name=k.replace(/_/g,' ');const card=h('div','cat');
   const top=h('div','cat-top');top.append(h('span','cat-name',name));
   if(c.status!=='evaluated'){
     card.classList.add('na');top.append(h('span','cat-score','not evaluated'));card.append(top,h('p','muted',c.reason||'missing evidence'));return card;
   }
   const r=c.score/c.maximum;const t=tone(r);card.classList.add(t);
-  top.append(h('span','cat-score',Math.round(r*100)+' / 100'));card.append(top);if(share!=null)card.append(h('span','weight','Worth '+share+'% of the overall score'));
+  top.append(h('span','cat-score',Math.round(r*100)+' / 100'));card.append(top);if(share!=null)card.append(h('span','weight','Worth '+share+'% '+(shareLabel||'of the overall score')));
   const bar=h('div','bar');const fill=h('i');fill.style.width=Math.round(r*100)+'%';bar.append(fill);card.append(bar);
   if(c.feedback)card.append(h('p','verdict',c.feedback));
   if((c.evidence||[]).length){const ev=h('div','ev');
@@ -546,9 +547,36 @@ function catCard(k,c,share){
     card.append(fx)}
   const foot=h('div','cat-foot');
   for(const id of c.principles||[])foot.append(h('span','pid',id));
+  for(const tg of c.tags||[])foot.append(h('span','pid',tg));
   if(r<0.7)foot.append(learnMore(name,k,c.principles));
   if(foot.childNodes.length)card.append(foot);
   return card;
+}
+const SEV={High:'sev high',Medium:'sev mid',Low:'sev low'};
+function visualSection(g,v){
+  const sec=h('div','cats');
+  const head=h('div','sechead');
+  const hl=h('b',null,'Technical visual quality');head.append(hl);
+  head.append(h('span','pill '+(v.score==null?'pend':v.score>=80?'publish':v.score>=60?'revise':'rework'),v.score==null?(v.provisional_score!=null?'Partial · '+v.provisional_score+' so far':'Pending'):v.score+' / 100 · '+v.band));
+  sec.append(head);
+  if(v.summary)sec.append(h('p','verdict',v.summary));
+  const bits=[['Strongest',v.strongest_visual_quality],['Weakest',v.weakest_visual_quality],['Fix first',v.highest_priority_fix]].filter(x=>x[1]);
+  for(const [a,b] of bits){const row=h('div','ev-row');row.append(h('span','chip',a),h('span',null,b));sec.append(row)}
+  for(const e of v.evidence_visibility_failures||[]){
+    const c=h('div','cat low');const top=h('div','cat-top');top.append(h('span','cat-name','Evidence visibility failure'),h('span','chip',mmss(e.timestamp_seconds)));c.append(top);
+    c.append(h('p','verdict','Narration: “'+e.narration_claim+'”'),h('p','verdict',e.problem));
+    const fx=h('div','fixes');fx.append(h('b',null,'Fix it'));const f=h('div','fix');f.append(h('span','chip',mmss(e.timestamp_seconds)),h('span',null,e.fix));fx.append(f);c.append(fx);sec.append(c)}
+  const names=Object.keys(v.weights||{});
+  for(const k of names){
+    const w=v.weights[k];const sc=(v.subscores||{})[k];
+    if(!sc){sec.append(catCard(k,{status:'x',reason:(v.not_evaluated||{})[k]||'not evaluated'}));continue}
+    const mine=(v.issues||[]).filter(i=>i.subcategory.toLowerCase().replace(/[^a-z]+/g,'_').replace(/^_|_$/g,'')===k);
+    const c={status:'evaluated',score:sc.score,maximum:100,feedback:sc.observation,tags:[sc.source],principles:[],
+      evidence:mine.map(i=>({timestamp_seconds:i.timestamp_start,observation:i.severity+': '+i.issue+' ('+i.impact+')'})),
+      fixes:mine.map(i=>({timestamp_seconds:i.timestamp_start,fix:i.recommended_fix}))};
+    sec.append(catCard(k,c,w,'of visual quality'));
+  }
+  return sec;
 }
 function formatScore(g){
   const root=h('div','sc');
@@ -559,24 +587,29 @@ function formatScore(g){
   const rec=h('span','pill '+(pend?'pend':String(g.recommendation||'').toLowerCase()),pend?'Pending review':g.recommendation);side.append(rec);
   const t=g.trend_fit||{};
   const mini=h('div','minis');
+  const wts=g.weights||{knowledge:.8,trends:.2,technical_visual_quality:0};
   mini.append(h('div','mini',null));
-  mini.firstChild.append(h('b',null,g.knowledge_score==null?'pending':g.knowledge_score+'/100'),h('small',null,'Knowledge (80%)'));
-  const m2=h('div','mini');m2.append(h('b',null,t.points!=null?Math.round(t.points*5)+'/100':'n/a'),h('small',null,'Trend fit (20%)'));mini.append(m2);
+  mini.firstChild.append(h('b',null,g.knowledge_score==null?'pending':g.knowledge_score+'/100'),h('small',null,'Knowledge ('+Math.round(wts.knowledge*100)+'%)'));
+  const m2=h('div','mini');m2.append(h('b',null,t.points!=null?Math.round(t.points*5)+'/100':'n/a'),h('small',null,'Trend fit ('+Math.round(wts.trends*100)+'%)'));mini.append(m2);
+  const tv=g.technical_visual_quality;if(tv){const m3=h('div','mini');m3.append(h('b',null,tv.score!=null?tv.score+'/100':(tv.provisional_score!=null?'~'+tv.provisional_score:'pending')),h('small',null,'Visual quality ('+Math.round((wts.technical_visual_quality||0)*100)+'%)'));mini.append(m3)}
   side.append(mini);
   if(pend)side.append(h('p','muted','No total yet: some categories could not be judged. Attach a transcript and score again to complete it.'));
   hero.append(side);root.append(hero);
   const cats=h('div','cats');
   if(t.points!=null){
     const c={status:'evaluated',score:t.points,maximum:20,feedback:t.feedback,evidence:(t.evidence||[]).map(e=>({source:e.metric,observation:e.observation})),fixes:t.fixes||[],principles:[]};
-    const card=catCard('trend_fit',c,20);
+    const card=catCard('trend_fit',c,Math.round(wts.trends*100));
     if(g.trend_snapshot){const sn=h('p','muted','Compared with: '+g.trend_snapshot.scope+' ('+g.trend_snapshot.count+' videos, '+new Date(g.trend_snapshot.retrieved_at*1000).toLocaleDateString()+')');card.insertBefore(sn,card.children[2]||null)}
     cats.append(card);
   }else cats.append(catCard('trend_fit',{status:'x',reason:t.reason||'no reason given'}));
-  for(const [k,c] of Object.entries((g.scorecard||{}).categories||{}))cats.append(catCard(k,c,Math.round(c.maximum*0.8)));
+  for(const [k,c] of Object.entries((g.scorecard||{}).categories||{}))cats.append(catCard(k,c,Math.round(c.maximum*wts.knowledge)));
   root.append(cats);
+  if(g.technical_visual_quality)root.append(visualSection(g,g.technical_visual_quality));
   const notes=h('div','notes');
+  if((g.adjustments||[]).length){notes.append(h('p','verdict','Overall adjusted from '+g.overall_before_adjustments+' to '+g.overall_score+':'));for(const a of g.adjustments)notes.append(h('p','muted','• '+a.why+(a.points?' ('+a.points+')':'')))}
   for(const c of g.caveats||[])notes.append(h('p','muted','• '+c));
-  if(g.usage)notes.append(h('p','muted','Tokens used: '+g.usage.input_tokens+' in / '+g.usage.output_tokens+' out'));
+  for(const e of (g.technical_visual_quality||{}).errors||[])notes.append(h('p','muted','• Visual quality: '+e));
+  if(g.usage)notes.append(h('p','muted','Tokens used: '+g.usage.input_tokens+' in / '+g.usage.output_tokens+' out'+(g.visual_usage?' (+ '+g.visual_usage.input_tokens+' in / '+g.visual_usage.output_tokens+' out for visual quality)':'')));
   root.append(notes);return root;
 }
 function formatPackaging(g){
