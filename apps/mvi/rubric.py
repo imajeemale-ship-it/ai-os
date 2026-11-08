@@ -30,8 +30,9 @@ ANCHORS = {
                            'Mid: some land, some cut early or buried. Low: no identifiable moments. Quote the line or describe the moment with a timestamp.',
     'sound_design': 'Is speech intelligible, music under voice, effects useful? Measured silence or clipping is a signal to check, not proof; '
                     'quiet can be intentional.',
-    'visual_polish': 'Is the picture readable and consistent, overlays legible at phone size, nothing competing for the eye? '
-                     'Judge against the intended style (raw footage is not low polish if raw is intended).',
+    'visual_polish': 'Is the design readable and tidy: overlays legible at phone size, nothing competing for the eye? '
+                     'Judge against the intended style (raw footage is not low polish if raw is intended). '
+                     'Technical image quality (sharpness, real resolution, compression, frame timing, exposure) is scored separately as Technical Visual Quality; do not double count it here.',
     'ending_payoff': 'Does the ending deliver what the opening promised and leave a clear next step?',
 }
 

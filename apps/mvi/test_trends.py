@@ -85,7 +85,7 @@ class BlendTests(unittest.TestCase):
   out=full(0.9);out['trend_fit']=trend_fit(10)   # trend 50%
   r=self.run_score(out,TREND())
   self.assertEqual(r['knowledge_score'],90.0);self.assertEqual(r['trend_fit_percent'],50.0)
-  self.assertEqual(r['overall_score'],82.0);self.assertEqual(r['recommendation'],'REVISE')
+  self.assertEqual(r['overall_score'],83.2);self.assertEqual(r['recommendation'],'REVISE')   # 85% of (80/20 blend = 82) + 15% visual quality 90
  def test_no_trends_means_pending_not_a_made_up_score(self):
   r=self.run_score(full(0.9),None)
   self.assertEqual(r['knowledge_score'],90.0);self.assertIsNone(r['overall_score']);self.assertEqual(r['recommendation'],'PENDING_REVIEW')
