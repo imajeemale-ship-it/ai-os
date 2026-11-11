@@ -16,10 +16,10 @@ def test_baskets_have_separate_windows_and_ledgers():
 def test_baskets_enforce_budget_spread_and_distinct_exits():
     tactical = BASKETS["tactical"]
     core = BASKETS["core_trend"]
-    assert tactical["policy"].max_premium == 250.0
+    assert tactical["policy"].max_premium == 500.0
     assert tactical["policy"].target_min_premium == 100.0
-    assert tactical["policy"].max_spread_pct == 0.05
-    assert core["policy"].max_spread_pct == 0.05
+    assert tactical["policy"].max_spread_pct == 0.10
+    assert core["policy"].max_spread_pct == 0.10
     assert tactical["policy"].slippage_pct == 0.0
     assert core["policy"].slippage_pct == 0.0
     assert tactical["exit_rule"] == {"profit_target_pct": 0.20, "loss_limit_pct": -0.15}
@@ -56,7 +56,7 @@ def test_candidate_confirmation_requires_trend_and_correct_signal():
 
 
 def test_entry_window_avoids_open_and_late_day():
-    assert not entry_window_open(datetime(2026, 10, 16, 13, 45, tzinfo=timezone.utc))
+    assert not entry_window_open(datetime(2026, 10, 16, 13, 30, tzinfo=timezone.utc))
     assert entry_window_open(datetime(2026, 10, 16, 14, 5, tzinfo=timezone.utc))
     assert not entry_window_open(datetime(2026, 10, 16, 20, 0, tzinfo=timezone.utc))
 
@@ -67,4 +67,7 @@ def test_candidate_requires_two_separated_observations(tmp_path):
     first = datetime(2026, 10, 16, 14, 5, tzinfo=timezone.utc)
     second = datetime(2026, 10, 16, 14, 20, tzinfo=timezone.utc)
     assert not candidate_confirmed_twice(quote, ledger, first)
+    quote.strike = 355.0
     assert candidate_confirmed_twice(quote, ledger, second)
+    assert not candidate_confirmed_twice(quote, ledger, second, setup="different_setup")
+

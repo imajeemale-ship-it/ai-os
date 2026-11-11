@@ -10,11 +10,13 @@ from zoneinfo import ZoneInfo
 from typing import Any
 
 from ai_os.robinhood_options import (
+    MarketDataUnavailable,
     PaperAccount,
     PaperPolicy,
     RobinhoodMCPDataAdapter,
     _normalize_symbols,
     append_ledger,
+    credential_health,
     latest_open_position,
     market_session,
     paper_trade_cycle,
@@ -27,14 +29,14 @@ PAUSE_FILE = DEFAULT_ROOT / "PAPER_ENTRIES_PAUSED"
 BASKETS = {
     "tactical": {
         "ledger": DEFAULT_ROOT / "tactical_trades.jsonl",
-        "policy": PaperPolicy(min_dte=7, max_dte=21, comparison_dte=30, max_spread_pct=0.05, slippage_pct=0.0),
+        "policy": PaperPolicy(min_dte=7, max_dte=21, comparison_dte=30, max_spread_pct=0.10, slippage_pct=0.0),
         "strategies": {"dean_ahrens_unusual_flow_proxy"},
         "exit_rule": {"profit_target_pct": 0.20, "loss_limit_pct": -0.15},
         "max_holding_days": 3,
     },
     "core_trend": {
         "ledger": DEFAULT_ROOT / "core_trend_trades.jsonl",
-        "policy": PaperPolicy(min_dte=30, max_dte=60, comparison_dte=45, max_spread_pct=0.05, slippage_pct=0.0),
+        "policy": PaperPolicy(min_dte=30, max_dte=60, comparison_dte=45, max_spread_pct=0.10, slippage_pct=0.0),
         "strategies": {"breakout_continuation", "pullback_continuation_uptrend"},
         "exit_rule": {"profit_target_pct": 0.30, "loss_limit_pct": -0.20},
         "max_holding_days": 15,
@@ -44,6 +46,35 @@ BASKETS = {
 
 def strategy_allowed(matches: list[str], allowed: set[str]) -> bool:
     return bool(set(matches) & allowed)
+
+
+def strategy_decision(basket: str, matches: list[str], context: dict[str, Any]) -> dict[str, Any]:
+    """Record the setup decision separately from deterministic contract selection."""
+    priority = (
+        ["breakout_continuation", "pullback_continuation_uptrend",
+         "dean_ahrens_unusual_flow_proxy"]
+        if basket == "core_trend"
+        else ["dean_ahrens_unusual_flow_proxy",
+              "pullback_continuation_uptrend", "breakout_continuation"]
+    )
+    selected = next((name for name in priority if name in matches), None)
+    return {
+        "decision_layer": "strategy_selection",
+        "selector": "deterministic_rules_v1",
+        "basket": basket,
+        "selected_strategy": selected,
+        "eligible_strategies": [name for name in priority if name in matches],
+        "direction": "bullish_call" if selected else "none",
+        "evidence": {
+            "established_uptrend": bool(context.get("established_uptrend")),
+            "breakout_continuation": bool(context.get("breakout_continuation")),
+            "pullback_continuation": bool(context.get("pullback_continuation")),
+            "fib_confluence": bool(context.get("fib_confluence")),
+            "nearest_fib_level": context.get("nearest_fib_level"),
+        },
+        "ai_strategy_choice": None,
+        "ai_status": "deferred_until_decision_schema_has_forward_baseline",
+    }
 
 
 def candidate_confirmed(basket: str, matches: list[str], context: dict[str, Any]) -> bool:
@@ -57,13 +88,13 @@ def candidate_confirmed(basket: str, matches: list[str], context: dict[str, Any]
 def entry_window_open(now: datetime | None = None) -> bool:
     eastern = ZoneInfo("America/New_York")
     current = (now or datetime.now(eastern)).astimezone(eastern)
-    return current.weekday() < 5 and time(10, 0) <= current.time() <= time(15, 30)
+    return current.weekday() < 5 and time(9, 45) <= current.time() <= time(15, 45)
 
 
-def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | None = None) -> bool:
+def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | None = None, *, setup: str = "") -> bool:
     state_path = Path(ledger).with_suffix(".confirmation.json")
     current = now or datetime.now(ZoneInfo("America/New_York"))
-    key = f"{quote.symbol}:{quote.expiration}:{quote.strike}"
+    key = f"{quote.symbol}:{setup}"
     previous: dict[str, Any] = {}
     if state_path.exists():
         try:
@@ -77,9 +108,7 @@ def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | No
         age_minutes = (current.astimezone(ZoneInfo("UTC")) - observed.astimezone(ZoneInfo("UTC"))).total_seconds() / 60
     confirmed = previous.get("key") == key and age_minutes is not None and 5 <= age_minutes <= 30
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    if confirmed:
-        state_path.unlink(missing_ok=True)
-    else:
+    if not confirmed and not (previous.get("key") == key and age_minutes is not None and 0 <= age_minutes < 5):
         state_path.write_text(json.dumps({"key": key, "observed_at": current.isoformat()}), encoding="utf-8")
     return confirmed
 
@@ -126,6 +155,7 @@ def run_basket(
         "exit_rule": config["exit_rule"],
         "max_holding_days": config["max_holding_days"],
         "market_session": asdict(session),
+        "credential_health": credential_health(),
     }
     if PAUSE_FILE.exists():
         record = {**base, "status": "rejected", "entry_rejections": ["paper_entries_paused_by_owner"], "quote": None, "order": None}
@@ -135,25 +165,33 @@ def run_basket(
         record = {**base, "status": "rejected", "entry_rejections": ["outside_confirmed_entry_window"], "quote": None, "order": None}
         append_ledger(record, ledger)
         return record
+    entry_blocks = []
     if entry_opened_today(ledger):
-        record = {**base, "status": "rejected", "entry_rejections": ["daily_basket_entry_limit_reached"], "quote": None, "order": None}
-        append_ledger(record, ledger)
-        return record
+        entry_blocks.append("daily_basket_entry_limit_reached")
     if latest_open_position(ledger):
-        record = {**base, "status": "rejected", "entry_rejections": ["basket_position_already_open"], "quote": None, "order": None}
-        append_ledger(record, ledger)
-        return record
+        entry_blocks.append("basket_position_already_open")
     if not session.options_open:
         record = {**base, "status": "rejected", "entry_rejections": [session.reason], "quote": None, "order": None}
         append_ledger(record, ledger)
         return record
 
-    data = adapter or RobinhoodMCPDataAdapter()
+    try:
+        data = adapter or RobinhoodMCPDataAdapter()
+    except MarketDataUnavailable as exc:
+        record = {**base, "status": "rejected", "entry_rejections": ["market_data_unavailable"],
+                  "rejected_symbols": [{"reason": str(exc)}], "quote": None, "order": None}
+        append_ledger(record, ledger)
+        return record
     candidates = []
     rejected = []
+    scanned = 0
+    contracts = 0
     for symbol in checked:
         try:
-            for quote in data.long_call_candidates(symbol, config["policy"]):
+            quotes = data.long_call_candidates(symbol, config["policy"])
+            scanned += 1
+            contracts += len(quotes)
+            for quote in quotes:
                 instrument_id = quote.source.partition(":")[2]
                 matches = data.strategy_matches.get(instrument_id, [])
                 context = data.strategy_contexts.get(quote.symbol) or {}
@@ -162,7 +200,12 @@ def run_basket(
         except Exception as exc:
             rejected.append({"symbol": symbol, "reason": str(exc)})
     ranked = rank_candidates(candidates, config["policy"])
+    base["scan_summary"] = {"symbols_attempted": len(checked), "symbols_returning_contracts": scanned,
+                            "contracts_before_basket_rules": contracts, "eligible_contracts": len(ranked),
+                            "entry_blocks": entry_blocks}
+    base["rejected_symbols"] = rejected
     if not ranked:
+        ledger.with_suffix(".confirmation.json").unlink(missing_ok=True)
         record = {
             **base,
             "status": "rejected",
@@ -175,11 +218,14 @@ def run_basket(
         return record
 
     selected = ranked[0]["quote"]
-    if not candidate_confirmed_twice(selected, ledger):
+    matches = data.strategy_matches.get(selected.source.partition(":")[2], [])
+    setup = strategy_decision(basket, [m for m in matches if m in config["strategies"]],
+                              data.strategy_contexts.get(selected.symbol, {}))["selected_strategy"]
+    if entry_blocks or not candidate_confirmed_twice(selected, ledger, setup=setup or ""):
         record = {
             **base,
             "status": "rejected",
-            "entry_rejections": ["awaiting_second_consecutive_confirmation"],
+            "entry_rejections": entry_blocks or ["awaiting_second_consecutive_confirmation"],
             "quote": asdict(selected),
             "order": None,
             "due_diligence": ranked[0]["due_diligence"],
@@ -189,7 +235,7 @@ def run_basket(
         return record
     record = paper_trade_cycle(
         selected,
-        PaperAccount(buying_power=250.0, settled_cash=5000.0),
+        PaperAccount(buying_power=500.0, settled_cash=5000.0),
         policy=config["policy"],
         ledger_path=ledger,
         persist=False,
@@ -199,6 +245,19 @@ def run_basket(
     record["due_diligence"] = ranked[0]["due_diligence"]
     record["strategy_matches"] = data.strategy_matches.get(instrument_id, [])
     record["strategy_context"] = data.strategy_contexts.get(selected.symbol)
+    record["strategy_decision"] = strategy_decision(
+        basket,
+        record["strategy_matches"],
+        record["strategy_context"] or {},
+    )
+    record["contract_selection"] = {
+        "decision_layer": "contract_validation_and_selection",
+        "selector": "deterministic_rank_candidates_v1",
+        "selected_instrument": selected.source,
+        "selected_contract": f"{selected.symbol} {selected.expiration} {selected.strike}C",
+        "budget": {"min_premium": config["policy"].target_min_premium, "max_premium": config["policy"].target_max_premium},
+        "validation": record.get("due_diligence", {}),
+    }
     record["directional_signal"] = data.directional_signals.get(selected.symbol)
     record["candidate_rankings"] = [item["due_diligence"] for item in ranked[:5]]
     record["rejected_symbols"] = rejected
@@ -212,4 +271,9 @@ def run_basket(
 
 
 def run_research_baskets(symbols: str | list[str]) -> dict[str, dict[str, Any]]:
-    return {name: run_basket(name, symbols) for name in BASKETS}
+    results = {name: run_basket(name, symbols) for name in BASKETS}
+    # Shadow comparison is isolated from funded paper baskets and never opens a position.
+    from ai_os.robinhood_strategy_comparison import run_strategy_comparison
+    results["strategy_comparison"] = run_strategy_comparison(symbols)
+    return results
+

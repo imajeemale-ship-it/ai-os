@@ -21,6 +21,9 @@ from ai_os.robinhood_options import (
     run_alpaca_cycle,
     run_fixture_cycle,
     due_diligence_score,
+    credential_health,
+    assess_position_size,
+    fractional_kelly_fraction,
     rank_candidates,
     save_cycle_report,
     validate_entry,
@@ -28,15 +31,51 @@ from ai_os.robinhood_options import (
 
 
 class RobinhoodOptionsPaperTests(unittest.TestCase):
+    def test_credential_health_is_sanitized_and_paper_only(self):
+        health = credential_health()
+        self.assertIn(health["robinhood_mcp"], {"available", "missing"})
+        self.assertIn(health["alpaca"], {"available", "missing"})
+        self.assertFalse(health["live_trading_allowed"])
+        self.assertFalse(health["secrets_exposed"])
+
     def test_valid_fixture_passes_entry_gates(self):
         reasons = validate_entry(fixture_quote(), PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertEqual(reasons, [])
 
     def test_rejects_premium_above_cap(self):
         quote = fixture_quote()
-        expensive = OptionQuote(**{**quote.__dict__, "ask": 3.0, "bid": 2.95})
+        expensive = OptionQuote(**{**quote.__dict__, "ask": 6.0, "bid": 5.90})
         reasons = validate_entry(expensive, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertIn("premium_above_cap", reasons)
+
+    def test_new_paper_cap_is_500_dollars(self):
+        self.assertEqual(PaperPolicy().max_premium, 500.0)
+
+    def test_fractional_kelly_sizes_even_money_edge_conservatively(self):
+        self.assertAlmostEqual(fractional_kelly_fraction(0.60, 1.0, 1.0, 0.25), 0.05)
+        self.assertEqual(fractional_kelly_fraction(0.50, 1.0, 1.0, 0.25), 0.0)
+
+    def test_position_size_uses_fractional_kelly_and_hard_cap(self):
+        sizing = assess_position_size(
+            PaperAccount(buying_power=5000, settled_cash=5000),
+            PaperPolicy(),
+            win_probability=0.75,
+            average_win_return=0.50,
+            average_loss_return=1.0,
+        )
+        self.assertEqual(sizing["status"], "sized")
+        self.assertEqual(sizing["recommended_premium"], 312.50)
+        self.assertEqual(sizing["hard_cap"], 500.0)
+
+    def test_position_size_requires_measured_edge(self):
+        sizing = assess_position_size(
+            PaperAccount(buying_power=5000, settled_cash=5000),
+            PaperPolicy(),
+            win_probability=None,
+        )
+        self.assertEqual(sizing["status"], "unscored_edge")
+        self.assertIsNone(sizing["recommended_premium"])
+
 
     def test_rejects_wide_spread_and_thin_liquidity(self):
         quote = fixture_quote()
@@ -48,7 +87,7 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
 
     def test_rejects_estimated_fill_above_total_budget(self):
         quote = fixture_quote()
-        near_cap = OptionQuote(**{**quote.__dict__, "bid": 2.40, "ask": 2.45})
+        near_cap = OptionQuote(**{**quote.__dict__, "bid": 4.90, "ask": 5.00})
         reasons = validate_entry(near_cap, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
         self.assertIn("estimated_fill_above_premium_cap", reasons)
 
@@ -84,6 +123,22 @@ class RobinhoodOptionsPaperTests(unittest.TestCase):
             with ledger.open("a") as handle:
                 handle.write(json.dumps({"record_type": "paper_position_monitor", "status": "closed"}) + "\n")
             self.assertIsNone(latest_open_position(ledger))
+
+    def test_rejects_expired_live_contract_even_with_stale_dte(self):
+        quote = fixture_quote()
+        expired = OptionQuote(**{**quote.__dict__, "source": "robinhood_mcp:test", "expiration": "2020-10-30", "dte": 16})
+        reasons = validate_entry(expired, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertIn("contract_expired", reasons)
+
+    def test_historical_fixture_remains_valid_for_regression(self):
+        reasons = validate_entry(fixture_quote(), PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertNotIn("contract_expired", reasons)
+
+    def test_rejects_invalid_live_expiration(self):
+        quote = fixture_quote()
+        invalid = OptionQuote(**{**quote.__dict__, "source": "alpaca_options_chain:test", "expiration": "not-a-date"})
+        reasons = validate_entry(invalid, PaperAccount(buying_power=1000, settled_cash=5000), PaperPolicy())
+        self.assertIn("expiration_missing_or_invalid", reasons)
 
     def test_cycle_records_rejected_opportunity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -199,10 +254,11 @@ class RobinhoodOptionsMarketDataTests(unittest.TestCase):
         self.assertTrue(context["established_uptrend"])
 
     def test_alpaca_adapter_selects_policy_passing_call(self):
+        future_expiration = (datetime.now(timezone.utc).date() + timedelta(days=16)).isoformat()
         payload = {
             "snapshots": {
                 "SPY261030C00590000": {
-                    "details": {"type": "call", "strike_price": 590, "expiration_date": "2026-10-30", "dte": 16},
+                    "details": {"type": "call", "strike_price": 590, "expiration_date": future_expiration, "dte": 16},
                     "latestQuote": {"bp": 1.42, "ap": 1.5, "t": datetime.now(timezone.utc).isoformat()},
                     "latestTrade": {"p": 1.46},
                     "greeks": {"delta": 0.36, "gamma": 0.041, "theta": -0.092, "vega": 0.184},
