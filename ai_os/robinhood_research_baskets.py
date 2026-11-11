@@ -28,14 +28,14 @@ PAUSE_FILE = DEFAULT_ROOT / "PAPER_ENTRIES_PAUSED"
 BASKETS = {
     "tactical": {
         "ledger": DEFAULT_ROOT / "tactical_trades.jsonl",
-        "policy": PaperPolicy(min_dte=7, max_dte=21, comparison_dte=30, max_spread_pct=0.05, slippage_pct=0.0),
+        "policy": PaperPolicy(min_dte=7, max_dte=21, comparison_dte=30, max_spread_pct=0.10, slippage_pct=0.0),
         "strategies": {"dean_ahrens_unusual_flow_proxy"},
         "exit_rule": {"profit_target_pct": 0.20, "loss_limit_pct": -0.15},
         "max_holding_days": 3,
     },
     "core_trend": {
         "ledger": DEFAULT_ROOT / "core_trend_trades.jsonl",
-        "policy": PaperPolicy(min_dte=30, max_dte=60, comparison_dte=45, max_spread_pct=0.05, slippage_pct=0.0),
+        "policy": PaperPolicy(min_dte=30, max_dte=60, comparison_dte=45, max_spread_pct=0.10, slippage_pct=0.0),
         "strategies": {"breakout_continuation", "pullback_continuation_uptrend"},
         "exit_rule": {"profit_target_pct": 0.30, "loss_limit_pct": -0.20},
         "max_holding_days": 15,
@@ -87,7 +87,7 @@ def candidate_confirmed(basket: str, matches: list[str], context: dict[str, Any]
 def entry_window_open(now: datetime | None = None) -> bool:
     eastern = ZoneInfo("America/New_York")
     current = (now or datetime.now(eastern)).astimezone(eastern)
-    return current.weekday() < 5 and time(10, 0) <= current.time() <= time(15, 30)
+    return current.weekday() < 5 and time(9, 45) <= current.time() <= time(15, 45)
 
 
 def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | None = None) -> bool:
@@ -220,7 +220,7 @@ def run_basket(
         return record
     record = paper_trade_cycle(
         selected,
-        PaperAccount(buying_power=250.0, settled_cash=5000.0),
+        PaperAccount(buying_power=500.0, settled_cash=5000.0),
         policy=config["policy"],
         ledger_path=ledger,
         persist=False,
