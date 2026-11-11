@@ -67,4 +67,7 @@ def test_candidate_requires_two_separated_observations(tmp_path):
     first = datetime(2026, 10, 16, 14, 5, tzinfo=timezone.utc)
     second = datetime(2026, 10, 16, 14, 20, tzinfo=timezone.utc)
     assert not candidate_confirmed_twice(quote, ledger, first)
+    quote.strike = 355.0
     assert candidate_confirmed_twice(quote, ledger, second)
+    assert not candidate_confirmed_twice(quote, ledger, second, setup="different_setup")
+
