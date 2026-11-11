@@ -11,6 +11,7 @@ from ai_os.robinhood_options import (
 DEFAULT_ROOT = Path.home() / ".ai-os" / "robinhood-options"
 COMPARISON_LEDGER = DEFAULT_ROOT / "strategy_comparison.jsonl"
 STRATEGIES = {
+    "post_selloff_recovery": {"required": {"post_selloff_recovery"}},
     "flow_momentum": {"required": {"dean_ahrens_unusual_flow_proxy"}},
     "breakout": {"required": {"breakout_continuation"}},
     "fibonacci_pullback": {"required": {"pullback_continuation_uptrend"}},
@@ -25,14 +26,15 @@ def run_strategy_comparison(
     adapter: RobinhoodMCPDataAdapter | None = None,
     ledger_path: str | Path = COMPARISON_LEDGER,
 ) -> dict[str, Any]:
+    from ai_os.robinhood_research_baskets import candidate_confirmed_twice
     data = adapter or RobinhoodMCPDataAdapter()
     checked = [item.strip().upper() for item in symbols.split(",")] if isinstance(symbols, str) else [item.upper() for item in symbols]
     candidates = []
     rejected = []
-    policy = PaperPolicy(min_dte=7, max_dte=21, max_spread_pct=0.05, slippage_pct=0.0)
+    policy = PaperPolicy(min_dte=7, max_dte=21, max_spread_pct=0.10, slippage_pct=0.0)
     for symbol in checked:
         try:
-            candidates.extend(data.long_call_candidates(symbol, policy))
+            candidates.extend(data.long_call_candidates(symbol, policy, comparison=True))
         except Exception as exc:
             rejected.append({"symbol": symbol, "reason": str(exc)})
     from ai_os.robinhood_market_regime import monitor_market_regime
@@ -47,6 +49,16 @@ def run_strategy_comparison(
             if (len(matches & required) >= spec.get("minimum_matches", 1)):
                 eligible.append(quote)
         ranked = rank_candidates(eligible, policy)
+        if name == "post_selloff_recovery":
+            state = Path(ledger_path).with_suffix(".recovery.jsonl")
+            if not ranked:
+                state.with_suffix(".confirmation.json").unlink(missing_ok=True)
+            elif not candidate_confirmed_twice(ranked[0]["quote"], state, setup=name):
+                append_ledger({"record_type": "paper_strategy_comparison", "created_at": utc_now(),
+                               "mode": "paper_only_shadow", "live_trading_allowed": False, "strategy": name,
+                               "status": "awaiting_reclaim_hold", "quote": asdict(ranked[0]["quote"])}, ledger_path)
+                records[name] = {"status": "awaiting_reclaim_hold"}
+                continue
         record = {
             "record_type": "paper_strategy_comparison",
             "created_at": utc_now(),
@@ -63,7 +75,7 @@ def run_strategy_comparison(
         if ranked:
             selected = ranked[0]["quote"]
             simulated = paper_trade_cycle(
-                selected, PaperAccount(buying_power=250.0, settled_cash=5000.0),
+                selected, PaperAccount(buying_power=policy.max_premium, settled_cash=5000.0),
                 policy=policy, persist=False,
             )
             instrument_id = selected.source.partition(":")[2]
@@ -73,6 +85,7 @@ def run_strategy_comparison(
                 "quote": asdict(selected),
                 "contract_selection": ranked[0]["due_diligence"],
                 "strategy_evidence": {
+                    "recovery_reclaim": context.get("recovery_reclaim"),
                     "matches": data.strategy_matches.get(instrument_id, []),
                     "fib_confluence": context.get("fib_confluence"),
                     "nearest_fib_level": context.get("nearest_fib_level"),
@@ -85,3 +98,4 @@ def run_strategy_comparison(
         append_ledger(record, ledger_path)
         records[name] = record
     return records
+
