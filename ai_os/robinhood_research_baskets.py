@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from typing import Any
 
 from ai_os.robinhood_options import (
+    MarketDataUnavailable,
     PaperAccount,
     PaperPolicy,
     RobinhoodMCPDataAdapter,
@@ -90,10 +91,10 @@ def entry_window_open(now: datetime | None = None) -> bool:
     return current.weekday() < 5 and time(9, 45) <= current.time() <= time(15, 45)
 
 
-def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | None = None) -> bool:
+def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | None = None, *, setup: str = "") -> bool:
     state_path = Path(ledger).with_suffix(".confirmation.json")
     current = now or datetime.now(ZoneInfo("America/New_York"))
-    key = f"{quote.symbol}:{quote.expiration}:{quote.strike}"
+    key = f"{quote.symbol}:{setup}"
     previous: dict[str, Any] = {}
     if state_path.exists():
         try:
@@ -107,9 +108,7 @@ def candidate_confirmed_twice(quote: Any, ledger: str | Path, now: datetime | No
         age_minutes = (current.astimezone(ZoneInfo("UTC")) - observed.astimezone(ZoneInfo("UTC"))).total_seconds() / 60
     confirmed = previous.get("key") == key and age_minutes is not None and 5 <= age_minutes <= 30
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    if confirmed:
-        state_path.unlink(missing_ok=True)
-    else:
+    if not confirmed and not (previous.get("key") == key and age_minutes is not None and 0 <= age_minutes < 5):
         state_path.write_text(json.dumps({"key": key, "observed_at": current.isoformat()}), encoding="utf-8")
     return confirmed
 
@@ -166,25 +165,33 @@ def run_basket(
         record = {**base, "status": "rejected", "entry_rejections": ["outside_confirmed_entry_window"], "quote": None, "order": None}
         append_ledger(record, ledger)
         return record
+    entry_blocks = []
     if entry_opened_today(ledger):
-        record = {**base, "status": "rejected", "entry_rejections": ["daily_basket_entry_limit_reached"], "quote": None, "order": None}
-        append_ledger(record, ledger)
-        return record
+        entry_blocks.append("daily_basket_entry_limit_reached")
     if latest_open_position(ledger):
-        record = {**base, "status": "rejected", "entry_rejections": ["basket_position_already_open"], "quote": None, "order": None}
-        append_ledger(record, ledger)
-        return record
+        entry_blocks.append("basket_position_already_open")
     if not session.options_open:
         record = {**base, "status": "rejected", "entry_rejections": [session.reason], "quote": None, "order": None}
         append_ledger(record, ledger)
         return record
 
-    data = adapter or RobinhoodMCPDataAdapter()
+    try:
+        data = adapter or RobinhoodMCPDataAdapter()
+    except MarketDataUnavailable as exc:
+        record = {**base, "status": "rejected", "entry_rejections": ["market_data_unavailable"],
+                  "rejected_symbols": [{"reason": str(exc)}], "quote": None, "order": None}
+        append_ledger(record, ledger)
+        return record
     candidates = []
     rejected = []
+    scanned = 0
+    contracts = 0
     for symbol in checked:
         try:
-            for quote in data.long_call_candidates(symbol, config["policy"]):
+            quotes = data.long_call_candidates(symbol, config["policy"])
+            scanned += 1
+            contracts += len(quotes)
+            for quote in quotes:
                 instrument_id = quote.source.partition(":")[2]
                 matches = data.strategy_matches.get(instrument_id, [])
                 context = data.strategy_contexts.get(quote.symbol) or {}
@@ -193,7 +200,12 @@ def run_basket(
         except Exception as exc:
             rejected.append({"symbol": symbol, "reason": str(exc)})
     ranked = rank_candidates(candidates, config["policy"])
+    base["scan_summary"] = {"symbols_attempted": len(checked), "symbols_returning_contracts": scanned,
+                            "contracts_before_basket_rules": contracts, "eligible_contracts": len(ranked),
+                            "entry_blocks": entry_blocks}
+    base["rejected_symbols"] = rejected
     if not ranked:
+        ledger.with_suffix(".confirmation.json").unlink(missing_ok=True)
         record = {
             **base,
             "status": "rejected",
@@ -206,11 +218,14 @@ def run_basket(
         return record
 
     selected = ranked[0]["quote"]
-    if not candidate_confirmed_twice(selected, ledger):
+    matches = data.strategy_matches.get(selected.source.partition(":")[2], [])
+    setup = strategy_decision(basket, [m for m in matches if m in config["strategies"]],
+                              data.strategy_contexts.get(selected.symbol, {}))["selected_strategy"]
+    if entry_blocks or not candidate_confirmed_twice(selected, ledger, setup=setup or ""):
         record = {
             **base,
             "status": "rejected",
-            "entry_rejections": ["awaiting_second_consecutive_confirmation"],
+            "entry_rejections": entry_blocks or ["awaiting_second_consecutive_confirmation"],
             "quote": asdict(selected),
             "order": None,
             "due_diligence": ranked[0]["due_diligence"],
@@ -261,3 +276,4 @@ def run_research_baskets(symbols: str | list[str]) -> dict[str, dict[str, Any]]:
     from ai_os.robinhood_strategy_comparison import run_strategy_comparison
     results["strategy_comparison"] = run_strategy_comparison(symbols)
     return results
+
