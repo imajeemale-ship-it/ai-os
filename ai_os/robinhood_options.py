@@ -465,7 +465,28 @@ def notify_paper_event(record: dict[str, Any]) -> bool:
         suffix = " Data status: " + ", ".join(
             f"{name}={health.get(name, 'unknown')}" for name in ("robinhood_mcp", "alpaca")
         ) if health and (blocked or "missing" in health.values()) else ""
-        message = f"{basket}NO PAPER TRADE: {reasons}. The agent stayed in cash.{suffix}"
+        labels = {
+            "daily_basket_entry_limit_reached": "today’s paper entry already used",
+            "basket_position_already_open": "basket already has an open paper position",
+            "awaiting_second_consecutive_confirmation": "waiting for the setup to appear on a second scan",
+            "no_contract_passed_basket_filters": "no contract qualified",
+            "market_data_unavailable": "could not connect to the market data feed",
+        }
+        reasons = ", ".join(labels.get(reason, reason.replace("_", " "))
+                            for reason in (record.get("entry_rejections") or ["unknown_reason"]))
+        scan = record.get("scan_summary")
+        if scan:
+            suffix += (f" Attempted {scan['symbols_attempted']} symbols; "
+                       f"{scan['symbols_returning_contracts']} returned contracts; "
+                       f"{scan['eligible_contracts']} contracts qualified.")
+        quote = record.get("quote") or {}
+        if quote.get("symbol"):
+            suffix += f" Top candidate: {quote['symbol']} {quote['expiration']} {quote['strike']}C."
+        failures = record.get("rejected_symbols") or []
+        if failures:
+            suffix += " Scan details: " + "; ".join(
+                f"{item.get('symbol', 'Feed')}: {item['reason'].replace('_', ' ')[:200]}" for item in failures[:3])
+        message = f"{basket}NO NEW PAPER TRADE: {reasons}.{suffix}"
     return send_telegram_alert(message)
 
 
@@ -624,7 +645,7 @@ class RobinhoodMCPDataAdapter:
             raise MarketDataUnavailable("empty_robinhood_mcp_response")
         return json.loads(text)
 
-    def _underlying_price(self, symbol: str) -> float:
+    def _underlying_price(self, symbol: str, *, comparison: bool = False) -> float:
         payload = self._tool("get_equity_quotes", {"symbols": [symbol]})
         results = (payload.get("data") or {}).get("results") or []
         if not results:
@@ -637,7 +658,12 @@ class RobinhoodMCPDataAdapter:
         choices = [(stamp, price) for stamp, price in choices if stamp and price]
         if not choices:
             raise MarketDataUnavailable("missing_underlying_price")
-        current_price = _as_float(max(choices, key=lambda item: item[0])[1])
+        stamp, price = max(choices, key=lambda item: item[0])
+        current_price = _as_float(price)
+        if comparison:
+            age = _quote_age_seconds(stamp)
+            if age is None or not -5 <= age <= 120 or current_price <= 0:
+                raise MarketDataUnavailable("underlying_quote_stale_or_invalid")
         previous_close = _as_float(quote.get("adjusted_previous_close") or quote.get("previous_close"))
         if previous_close <= 0:
             raise MarketDataUnavailable("missing_previous_close")
@@ -648,9 +674,9 @@ class RobinhoodMCPDataAdapter:
             "change_pct": round(change_pct, 6),
             "rule": "long_calls_require_0.15_to_4_percent_positive_move",
         }
-        if change_pct < 0.0015:
+        if not comparison and change_pct < 0.0015:
             raise MarketDataUnavailable("underlying_momentum_too_weak_for_long_call")
-        if change_pct > 0.04:
+        if not comparison and change_pct > 0.04:
             raise MarketDataUnavailable("underlying_move_too_extended_for_entry")
         return current_price
 
@@ -693,7 +719,14 @@ class RobinhoodMCPDataAdapter:
         breakout = current_price >= prior_high20 * 1.001
         established_uptrend = sma20 > sma50 and closes[-1] > sma50
         pullback = established_uptrend and sma20 * 0.98 <= current_price <= sma20 * 1.02
+        prior = completed[-1]
+        prior_low = _as_float(prior.get("low_price"))
+        prior_high = highs[-1]
+        reclaim = (prior_high + prior_low) / 2
+        selloff = 0 < prior_low < prior_high and 0 < closes[-1] <= closes[-2] * 0.98 and closes[-1] < reclaim
         context = {
+            "recovery_reclaim": reclaim if selloff else None,
+            "post_selloff_recovery": selloff and current_price >= reclaim,
             "sma20": round(sma20, 4),
             "sma50": round(sma50, 4),
             "prior_high20": round(prior_high20, 4),
@@ -709,7 +742,7 @@ class RobinhoodMCPDataAdapter:
         self.strategy_contexts[symbol] = context
         return context
 
-    def long_call_candidates(self, underlying_symbol: str, policy: PaperPolicy | None = None) -> list[OptionQuote]:
+    def long_call_candidates(self, underlying_symbol: str, policy: PaperPolicy | None = None, *, comparison: bool = False) -> list[OptionQuote]:
         active_policy = policy or PaperPolicy()
         symbol = underlying_symbol.upper()
         chain_payload = self._tool("get_option_chains", {"underlying_symbol": symbol})
@@ -728,7 +761,7 @@ class RobinhoodMCPDataAdapter:
                 expirations.append(value)
         if not expirations:
             raise MarketDataUnavailable("no_expiration_in_primary_window")
-        underlying_price = self._underlying_price(symbol)
+        underlying_price = self._underlying_price(symbol, comparison=True) if comparison else self._underlying_price(symbol)
         strategy_context = self._strategy_context(symbol, underlying_price)
         instruments: list[dict[str, Any]] = []
         cursor: str | None = None
@@ -760,6 +793,7 @@ class RobinhoodMCPDataAdapter:
                 if quote_data.get("instrument_id"):
                     quotes_by_id[quote_data["instrument_id"]] = quote_data
         candidates: list[OptionQuote] = []
+        rejection_counts: dict[str, int] = {}
         for item in eligible:
             data = quotes_by_id.get(item["id"]) or {}
             expiration = str(item.get("expiration_date") or "")
@@ -803,11 +837,22 @@ class RobinhoodMCPDataAdapter:
                 matches.append("breakout_continuation")
             if strategy_context["pullback_continuation"] and balanced_delta and tight_execution and controlled_iv:
                 matches.append("pullback_continuation_uptrend")
-            if matches and not validate_entry(quote, PaperAccount(buying_power=10_000, settled_cash=10_000), active_policy):
+            if comparison:
+                move = self.directional_signals[symbol]["change_pct"]
+                if not 0.0015 <= move <= 0.04:
+                    matches.clear()
+                if strategy_context["post_selloff_recovery"] and balanced_delta and tight_execution and controlled_iv:
+                    matches.append("post_selloff_recovery")
+            reasons = validate_entry(quote, PaperAccount(buying_power=10_000, settled_cash=10_000), active_policy)
+            if not matches:
+                reasons.append("no_strategy_match")
+            for reason in reasons:
+                rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+            if not reasons:
                 self.strategy_matches[item["id"]] = matches
                 candidates.append(quote)
         if not candidates:
-            raise MarketDataUnavailable("no_contract_passed_policy_filters")
+            raise MarketDataUnavailable("no_contract_passed_policy_filters: " + (", ".join(f"{k}={v}" for k, v in sorted(rejection_counts.items())) or "no usable two-sided quotes in strike range"))
         return candidates
 
 
@@ -1216,3 +1261,4 @@ def render_cycle_report(record: dict[str, Any]) -> str:
         lines.extend(f"- {item['symbol']}: {item['reason']}" for item in record["rejected_symbols"])
     lines.extend(["", "POSITION POLICY", "Trade premium only; close by selling the option contract. Exercise is disabled."])
     return "\n".join(lines)
+
