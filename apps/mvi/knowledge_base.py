@@ -15,6 +15,34 @@ SEJ = 'https://beta.searchenginejournal.com/how-youtubes-recommendation-system-w
 JY = 'Jon Youshaei, YouTube Masterclass 2025, https://youtu.be/h-8C3bntQRo (auto-captions; see research/002_YOUTUBE_MASTERCLASS.md)'
 JT = 'Jake Trinder, https://www.youtube.com/watch?v=Dx-c19qXdxM (auto-captions; see research/jake_trinder/EDITORIAL_DOCTRINE.md)'
 
+M3 = 'M3 house rule, set by the owner on 2026-11-15. An operating rule for the channel, not a claim about how YouTube ranks videos.'
+
+
+def _rule(n, element, text, categories):
+    return {'id': 'P-M3-%02d' % n, 'confidence': 'owner rule', 'source': M3, 'locked': True, 'element': element,
+            'categories': categories, 'text': text}
+
+
+# Permanent M3 rules. Locked: always in force and not open to approve/reject in the app; changing one is a code change
+# the owner approves. Rules with no categories are checklist items MVI cannot see in a video file (they live on YouTube).
+HOUSE_RULES = [
+    _rule(1, 'Thumbnail', 'M3 thumbnails show one focal idea, in high contrast, and make a truthful claim.',
+          ['thumbnail_clarity', 'promise_match']),
+    _rule(2, 'Title', 'M3 titles pair a searchable subject with curiosity, and do not repeat what the thumbnail already says.',
+          ['title']),
+    _rule(3, 'Opening', 'The opening delivers, or visibly teases, the thumbnail promise immediately.',
+          ['opening_hook', 'promise_match']),
+    _rule(4, 'Description', 'The description opens with unique, natural lines that explain the actual content.', []),
+    _rule(5, 'Hashtags', 'Three highly relevant hashtags by default.', []),
+    _rule(6, 'Hidden tags', 'Hidden tags hold only useful search variants and spelling corrections. No stuffing.', []),
+    _rule(7, 'Captions', 'Subtitles are accurate, especially for fast dialogue and jokes.', []),
+    _rule(8, 'Shorts', 'Each Short delivers one complete moment or observation. (Applies to Shorts only.)',
+          ['storytelling_engagement', 'ending_payoff']),
+    _rule(9, 'End screens', 'The ending leads viewers to the next relevant M3 video.', ['ending_payoff']),
+    _rule(10, 'Comments', 'Ask one genuine question that people want to answer.', []),
+    _rule(11, 'Analytics', 'Judge click-through rate, retention and satisfaction together, never one alone.', []),
+]
+
 PRINCIPLES = [
     {'id': 'P-YT-01', 'confidence': 'high', 'source': YT_RETENTION, 'categories': ['opening_hook'],
      'text': 'Intro retention is the share of viewers still watching after 30 seconds. A strong opening matches the title and thumbnail and holds interest; test the first 30 seconds.'},
@@ -43,7 +71,9 @@ PRINCIPLES = [
     {'id': 'P-JT-02', 'confidence': 'low', 'source': JT, 'categories': ['storytelling_engagement', 'pacing_retention', 'ending_payoff'],
      'text': 'Satisfaction is relative to expectations: judge slower sections against what the video promised, not against a universal pace.'},
 ]
+PRINCIPLES = HOUSE_RULES + PRINCIPLES
 IDS = {p['id'] for p in PRINCIPLES}
+LOCKED = {p['id'] for p in HOUSE_RULES}
 
 
 def _path(root):
@@ -57,17 +87,19 @@ def _load(root):
 
 def listing(root):
     d = _load(root)
-    return [{**p, 'decision': d.get(p['id'], 'pending')} for p in PRINCIPLES]
+    return [{**p, 'decision': 'approve' if p['id'] in LOCKED else d.get(p['id'], 'pending')} for p in PRINCIPLES]
 
 
 def approved(root):
     d = _load(root)
-    return [p for p in PRINCIPLES if d.get(p['id']) == 'approve']
+    return [p for p in PRINCIPLES if p['id'] in LOCKED or d.get(p['id']) == 'approve']
 
 
 def decide(root, pid, decision):
     if pid not in IDS or decision not in ('approve', 'reject', 'pending'):
         raise ValueError('Unknown principle or decision')
+    if pid in LOCKED:
+        raise ValueError('This is a locked M3 house rule and cannot be changed here')
     d = _load(root)
     d[pid] = decision
     p = _path(root)

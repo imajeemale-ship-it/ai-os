@@ -135,7 +135,7 @@ class EndpointTests(unittest.TestCase):
         if g.get('status') in('scored','partial','failed'):break
         time.sleep(.2)
       self.assertEqual((g['status'],g['packaging_score']),('scored',90.0));self.assertEqual(g['title'],'Epic Escape')
-      self.assertEqual(fake.packets[0]['principles'],[])  # nothing approved yet, so nothing is cited
+      self.assertEqual([x['id'] for x in fake.packets[0]['principles']],['P-M3-01','P-M3-02','P-M3-03'])  # only the locked M3 house rules apply before any approval
     finally:httpd.shutdown();httpd.server_close()
  def test_endpoints_require_token(self):
   with patch.dict(os.environ,{'MVI_API_TOKEN':'tok','MVI_REQUIRE_AUTH':'1'}):

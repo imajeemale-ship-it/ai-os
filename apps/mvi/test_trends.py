@@ -68,13 +68,29 @@ class TrendTests(unittest.TestCase):
 class KnowledgeTests(unittest.TestCase):
  def test_nothing_applies_until_approved(self):
   with tempfile.TemporaryDirectory() as t:
-   self.assertEqual(kb.approved(t),[]);self.assertTrue(all(p['decision']=='pending' for p in kb.listing(t)))
-   kb.decide(t,'P-YT-01','approve');self.assertEqual([p['id'] for p in kb.approved(t)],['P-YT-01'])
-   kb.decide(t,'P-YT-01','reject');self.assertEqual(kb.approved(t),[])
+   self.assertEqual({p['id'] for p in kb.approved(t)},kb.LOCKED);self.assertTrue(all(p['decision']=='pending' for p in kb.listing(t) if p['id'] not in kb.LOCKED))
+   kb.decide(t,'P-YT-01','approve');self.assertEqual({p['id'] for p in kb.approved(t)}-kb.LOCKED,{'P-YT-01'})
+   kb.decide(t,'P-YT-01','reject');self.assertEqual({p['id'] for p in kb.approved(t)},kb.LOCKED)
    with self.assertRaises(ValueError):kb.decide(t,'P-NOPE','approve')
    with self.assertRaises(ValueError):kb.decide(t,'P-YT-01','maybe')
  def test_every_principle_has_a_source_and_confidence(self):
-  for p in kb.PRINCIPLES:self.assertTrue(p['source'] and p['confidence'] in('high','medium','low') and p['categories'])
+  for p in kb.PRINCIPLES:
+   self.assertTrue(p['source'] and p['confidence'] in('high','medium','low','owner rule'))
+   if not p.get('locked'):self.assertTrue(p['categories'])
+ def test_m3_house_rules_are_locked_and_always_in_force(self):
+  self.assertEqual(len(kb.HOUSE_RULES),11)
+  with tempfile.TemporaryDirectory() as t:
+   ids={p['id'] for p in kb.approved(t)}                      # nothing decided yet: only the house rules apply
+   self.assertEqual(ids,kb.LOCKED)
+   self.assertTrue(all(p['decision']=='approve' for p in kb.listing(t) if p['id'] in kb.LOCKED))
+   for d in ('reject','pending','approve'):
+    with self.assertRaises(ValueError):kb.decide(t,'P-M3-01',d)
+   self.assertIn('P-M3-01',{p['id'] for p in kb.approved(t)})
+  import scoring,thumbnail_judge
+  known=set(scoring.RUBRIC)|thumbnail_judge.PRINCIPLE_CATEGORIES
+  for p in kb.HOUSE_RULES:self.assertTrue(set(p['categories'])<=known,p['id'])
+  scored={p['element'] for p in kb.HOUSE_RULES if p['categories']}
+  self.assertEqual(scored,{'Thumbnail','Title','Opening','Shorts','End screens'})
 
 class BlendTests(unittest.TestCase):
  def run_score(self,judge_out,trend,principles=None):

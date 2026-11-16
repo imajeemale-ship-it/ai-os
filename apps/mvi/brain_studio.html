@@ -801,13 +801,14 @@ async function loadPrinciples(){
       const row=document.createElement('div');row.style.cssText='border:1px solid #405773;border-radius:8px;padding:10px;font-size:13px';
       const head=document.createElement('div');head.style.cssText='font-weight:600;margin-bottom:4px';
       const label={approve:'APPROVED',reject:'REJECTED',pending:'pending'}[p.decision]||p.decision;
-      head.textContent=p.id+' · '+p.confidence+' confidence · '+label;
+      head.textContent=p.locked?p.id+' · '+p.element+' · M3 HOUSE RULE · LOCKED':p.id+' · '+p.confidence+' confidence · '+label;
       if(p.decision==='approve'){row.style.borderColor='#3fb950';row.style.background='rgba(63,185,80,.12)'}
       if(p.decision==='reject'){row.style.borderColor='#f85149';row.style.background='rgba(248,81,73,.12)';row.style.opacity='.8'}
       const body=document.createElement('div');body.textContent=p.text;
       const src=document.createElement('div');src.style.cssText='opacity:.7;font-size:11px;margin:4px 0';src.textContent='Source: '+p.source;
       const bar=document.createElement('div');bar.style.cssText='display:flex;gap:6px';
-      for(const d of ['approve','reject','pending']){
+      if(p.locked){const n=document.createElement('div');n.style.cssText='opacity:.75;font-size:11px';n.textContent=(p.categories||[]).length?'Used in scoring: '+p.categories.map(c=>c.replace(/_/g,' ')).join(', '):'Checklist only. MVI cannot see this in a video file, so it does not affect scores.';bar.append(n)}
+      for(const d of p.locked?[]:['approve','reject','pending']){
         const b=document.createElement('button');b.type='button';b.className='smallbutton';
         const on=p.decision===d;b.textContent=on?({approve:'✓ Approved',reject:'✓ Rejected',pending:'✓ Pending'}[d]):({approve:'Approve',reject:'Reject',pending:'Set pending'}[d]);
         if(on){b.disabled=true;b.style.fontWeight='700'}
